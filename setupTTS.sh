@@ -5,7 +5,7 @@ TOKEN=$1
 
 # Install dependencies
 curl -LsSf https://astral.sh/uv/install.sh | sh
-source ~/.bashrc
+PATH="/root/.local/bin:$PATH"
 apt-get update
 apt-get install -y vim ffmpeg git
 
