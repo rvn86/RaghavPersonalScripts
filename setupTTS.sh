@@ -32,6 +32,20 @@ setsid uvicorn fastapi_app:app --host 0.0.0.0 --port 8880 > /var/log/orpheus.log
 deactivate
 
 #############################################
+# Setup vLLM server
+#############################################
+mkdir -p /vllm-workspace
+cd /vllm-workspace
+uv venv --python 3.12 --seed
+source .venv/bin/activate
+uv pip install vllm --torch-backend=auto
+
+# Run vLLM server on port 1234 (daemonized)
+setsid vllm serve --port 1234 --host 127.0.0.1 > /var/log/vllm.log 2>&1 < /dev/null &
+
+deactivate
+
+#############################################
 # Setup Audiobook-Creator
 #############################################
 cd /
@@ -51,7 +65,7 @@ cat > .env <<'EOF'
 # No quotes in values
 OPENAI_BASE_URL=http://localhost:1234/v1
 OPENAI_API_KEY=lm-studio
-OPENAI_MODEL_NAME=qwen3-14b
+OPENAI_MODEL_NAME=Qwen/Qwen3-0.6B
 LLM_MAX_PARALLEL_REQUESTS_BATCH_SIZE=4
 TTS_BASE_URL=http://localhost:8880/v1
 TTS_API_KEY=dummy-key
@@ -65,5 +79,7 @@ setsid uvicorn app:app --host 0.0.0.0 --port 8000 > /var/log/audiobook.log 2>&1 
 
 deactivate
 
-echo "✅ Both servers started as daemons (check /var/log/orpheus.log and /var/log/audiobook.log)"
-
+echo "✅ All servers started as daemons:"
+echo "   - Orpheus TTS -> /var/log/orpheus.log"
+echo "   - vLLM        -> /var/log/vllm.log"
+echo "   - Audiobook   -> /var/log/audiobook.log"
