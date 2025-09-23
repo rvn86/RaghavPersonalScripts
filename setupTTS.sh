@@ -35,7 +35,8 @@ fi
 huggingface-cli login --token "$TOKEN"
 
 # Run Orpheus TTS server on port 8880 (daemonized)
-setsid uvicorn fastapi_app:app --host 0.0.0.0 --port 8880 > /var/log/orpheus.log 2>&1 < /dev/null &
+# setsid uvicorn fastapi_app:app --host 0.0.0.0 --port 8880 > /var/log/orpheus.log 2>&1 < /dev/null &
+./runOrpheus.sh
 
 deactivate
 
@@ -49,7 +50,9 @@ source .venv/bin/activate
 uv pip install vllm --torch-backend=auto
 
 # Run vLLM server on port 1234 (daemonized)
-setsid vllm serve --port 1234 --host 127.0.0.1 --gpu-memory-utilization 0.2 > /var/log/vllm.log 2>&1 < /dev/null &
+# setsid vllm serve --port 1234 --host 127.0.0.1 --gpu-memory-utilization 0.2 > /var/log/vllm.log 2>&1 < /dev/null &
+./runVllm.sh
+
 
 deactivate
 
@@ -73,17 +76,18 @@ cat > .env <<'EOF'
 # No quotes in values
 OPENAI_BASE_URL=http://localhost:1234/v1
 OPENAI_API_KEY=lm-studio
-OPENAI_MODEL_NAME=Qwen/Qwen3-0.6B
+OPENAI_MODEL_NAME=Qwen/Qwen3-4B
 LLM_MAX_PARALLEL_REQUESTS_BATCH_SIZE=4
 TTS_BASE_URL=http://localhost:8880/v1
 TTS_API_KEY=dummy-key
 TTS_MODEL=orpheus
 NO_THINK_MODE=false
-TTS_MAX_PARALLEL_REQUESTS_BATCH_SIZE=8
+TTS_MAX_PARALLEL_REQUESTS_BATCH_SIZE=40
 EOF
 
 # Run Audiobook Creator server on port 8000 (daemonized)
-setsid uvicorn app:app --host 0.0.0.0 --port 8000 > /var/log/audiobook.log 2>&1 < /dev/null &
+# setsid uvicorn app:app --host 0.0.0.0 --port 8000 > /var/log/audiobook.log 2>&1 < /dev/null &
+./runAudiobook.sh
 
 deactivate
 
