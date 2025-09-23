@@ -24,6 +24,14 @@ uv pip install -r requirements.txt
 uv pip install hf_transfer
 
 cp .env.sample .env
+
+# Ensure TTS_GPU_MEMORY_UTILIZATION is set to 0.6
+if grep -q '^TTS_GPU_MEMORY_UTILIZATION=' .env; then
+    sed -i 's/^TTS_GPU_MEMORY_UTILIZATION=.*/TTS_GPU_MEMORY_UTILIZATION=0.6/' .env
+else
+    echo 'TTS_GPU_MEMORY_UTILIZATION=0.6' >> .env
+fi
+
 huggingface-cli login --token "$TOKEN"
 
 # Run Orpheus TTS server on port 8880 (daemonized)
@@ -41,7 +49,7 @@ source .venv/bin/activate
 uv pip install vllm --torch-backend=auto
 
 # Run vLLM server on port 1234 (daemonized)
-setsid vllm serve --port 1234 --host 127.0.0.1 > /var/log/vllm.log 2>&1 < /dev/null &
+setsid vllm serve --port 1234 --host 127.0.0.1 --gpu-memory-utilization 0.2 > /var/log/vllm.log 2>&1 < /dev/null &
 
 deactivate
 
