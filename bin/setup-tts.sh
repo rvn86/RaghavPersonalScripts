@@ -6,7 +6,8 @@ if ! grep -q 'RaghavPersonalScripts/bin' "$HOME/.bashrc"; then
     echo 'export PATH="/RaghavPersonalScripts/bin:$PATH"' >> "$HOME/.bashrc"
 fi
 
-BASE=$( pwd )
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BASE="$(dirname "$SCRIPT_DIR")"
 TOKEN=$1
 WITH_VLLM=${2:-""}   # optional flag: pass "--with-vllm"
 
