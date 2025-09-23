@@ -1,0 +1,176 @@
+From 27a0c84dcdef35b2b3dfef0bdbd3d29fec6ebffe Mon Sep 17 00:00:00 2001
+From: Your Name <you@example.com>
+Date: Tue, 23 Sep 2025 21:14:33 +0000
+Subject: [PATCH] Add Chapters
+
+---
+ app.py                   |   4 +-
+ utils/audiobook_utils.py | 117 +++++++++++++++++++++++++++------------
+ 2 files changed, 84 insertions(+), 37 deletions(-)
+
+diff --git a/app.py b/app.py
+index 8035285..7370896 100644
+--- a/app.py
++++ b/app.py
+@@ -345,7 +345,7 @@ with gr.Blocks(css=css, theme=gr.themes.Default()) as gradio_app:
+                 output_format = gr.Dropdown(
+                     ["M4B (Chapters & Cover)", "AAC", "M4A", "MP3", "WAV", "OPUS", "FLAC", "PCM"], 
+                     label="Output Format",
+-                    value="M4B (Chapters & Cover)",
++                    value="M4A",
+                     info="M4B supports chapters and cover art"
+                 )
+             
+@@ -465,4 +465,4 @@ app = gr.mount_gradio_app(app, gradio_app, path="/")  # Mount Gradio at root
+ 
+ if __name__ == "__main__":
+     import uvicorn
+-    uvicorn.run(app, host="0.0.0.0", port=7860)
+\ No newline at end of file
++    uvicorn.run(app, host="0.0.0.0", port=7860)
+diff --git a/utils/audiobook_utils.py b/utils/audiobook_utils.py
+index df8ac0b..20b4015 100644
+--- a/utils/audiobook_utils.py
++++ b/utils/audiobook_utils.py
+@@ -16,6 +16,8 @@ You should have received a copy of the GNU General Public License
+ along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ """
+ 
++import tempfile
++import shutil
+ import subprocess
+ import re
+ import os
+@@ -657,49 +659,94 @@ def add_silence_to_audio_file_by_reencoding_using_ffmpeg(temp_dir, input_file_na
+ 
+ def merge_chapters_to_standard_audio_file(chapter_files):
+     """
+-    Uses ffmpeg to merge all chapter files into a standard M4A audio file).
+-
+-    This function takes a list of chapter files and an output format as input, and generates a standard M4A audio file.
++    Merge chapter audio files into a standard M4A with jumpable chapters.
++    Converts WAV/PCM/AAC chapters to AAC/M4A before concatenation.
++    Uses original filenames (without extension) as chapter titles.
+ 
+     Args:
+-        chapter_files (list): A list of the paths to the individual chapter audio files.
++        chapter_files (list): A list of the names of individual chapter audio files (inside temp_audio).
+     """
+-    file_list_path = "chapter_list.txt"
+-    
+-    # Write the list of chapter files to a text file (ffmpeg input)
+-    with open(file_list_path, "w", encoding='utf-8') as f:
+-        for chapter in chapter_files:
+-            chapter_path = os.path.join('temp_audio', chapter)
+-            # Validate each chapter file
+-            if not validate_file_path(chapter_path):
+-                raise ValueError(f"Invalid chapter file: {chapter}")
+-            f.write(f"file '{chapter_path}'\n")
++    if not chapter_files:
++        raise ValueError("No chapter files provided.")
+ 
+-    # Construct the output file path
+-    output_file = "generated_audiobooks/audiobook.m4a"
++    os.makedirs("generated_audiobooks", exist_ok=True)
+ 
+-    # Validate file list exists
+-    if not validate_file_path(file_list_path):
+-        raise ValueError("Chapter list file is invalid")
++    # Temporary folder for converted M4A chapters
++    temp_dir = tempfile.mkdtemp(prefix="chapters_")
++    converted_files = []
+ 
+-    # Construct secure ffmpeg command
+-    ffmpeg_cmd = [
+-        "ffmpeg", "-y", 
+-        "-f", "concat", "-safe", "0", 
+-        "-i", file_list_path, 
+-        "-c", "copy", 
++    # 1. Convert all chapters to M4A (if needed)
++    for chapter in chapter_files:
++        input_path = os.path.join("temp_audio", chapter)
++        if not os.path.exists(input_path):
++            raise ValueError(f"Invalid chapter file: {chapter}")
++
++        output_path = os.path.join(temp_dir, os.path.splitext(chapter)[0] + ".m4a")
++
++        if chapter.lower().endswith(".wav"):
++            create_m4a_file_from_wav_file(input_path, output_path)
++        elif chapter.lower().endswith(".aac"):
++            create_m4a_file_from_raw_aac_file(input_path, output_path)
++        elif chapter.lower().endswith(".m4a"):
++            shutil.copy(input_path, output_path)
++        else:
++            raise ValueError(f"Unsupported chapter format: {chapter}")
++
++        converted_files.append(output_path)
++
++    # 2. Create concat list
++    concat_file = os.path.join(temp_dir, "chapter_list.txt")
++    with open(concat_file, "w", encoding="utf-8") as f:
++        for path in converted_files:
++            f.write(f"file '{path}'\n")
++
++    # 3. Merge into one M4A
++    temp_merged = os.path.join(temp_dir, "temp_merged.m4a")
++    subprocess.run([
++        "ffmpeg", "-y",
++        "-f", "concat", "-safe", "0",
++        "-i", concat_file,
++        "-c", "copy",
++        temp_merged
++    ], check=True)
++
++    # 4. Create chapter metadata
++    metadata_file = os.path.join(temp_dir, "metadata.txt")
++    with open(metadata_file, "w", encoding="utf-8") as f:
++        f.write(";FFMETADATA1\n")
++        start_time = 0
++        for chapter, path in zip(chapter_files, converted_files):
++            # Get duration in seconds
++            result = subprocess.run(
++                ["ffprobe", "-v", "error", "-show_entries",
++                 "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", path],
++                capture_output=True, text=True, check=True
++            )
++            duration = float(result.stdout.strip())
++            end_time = start_time + int(duration * 1000)
++
++            # Use original filename (without extension) as chapter title
++            chapter_title = os.path.splitext(os.path.basename(chapter))[0]
++            f.write(f"[CHAPTER]\nTIMEBASE=1/1000\nSTART={start_time}\nEND={end_time}\ntitle={chapter_title}\n")
++
++            start_time = end_time
++
++    # 5. Attach metadata
++    output_file = "generated_audiobooks/audiobook.m4a"
++    subprocess.run([
++        "ffmpeg", "-y",
++        "-i", temp_merged,
++        "-i", metadata_file,
++        "-map_metadata", "1",
++        "-c", "copy",
+         output_file
+-    ]
++    ], check=True)
++
++    # 6. Clean up
++    shutil.rmtree(temp_dir)
++
++    print(f"Audiobook created with chapters: {output_file}")
+ 
+-    # Use centralized secure command execution
+-    allowed_ffmpeg_commands = ['ffmpeg']
+-    result = run_shell_command_secure(ffmpeg_cmd, allowed_ffmpeg_commands)
+-    
+-    if not result or result.returncode != 0:
+-        error_msg = result.stderr if result else "Unknown error"
+-        raise RuntimeError(f"FFmpeg failed: {error_msg}")
+-        
+-    print(f"Audiobook created: {output_file}")
+ 
+ def assemble_chapter_with_ffmpeg(chapter_file, line_indices, temp_line_audio_dir, temp_audio_dir):
+     """
+-- 
+2.34.1
+
