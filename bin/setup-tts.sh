@@ -3,7 +3,7 @@ set -euo pipefail
 
 # Ensure it's in ~/.bashrc (only add if not already present)
 if ! grep -q 'RaghavPersonalScripts/bin' "$HOME/.bashrc"; then
-    echo 'export PATH="$HOME/RaghavPersonalScripts/bin:$PATH"' >> "$HOME/.bashrc"
+    echo 'export PATH="/RaghavPersonalScripts/bin:$PATH"' >> "$HOME/.bashrc"
 fi
 
 BASE=$( pwd )
