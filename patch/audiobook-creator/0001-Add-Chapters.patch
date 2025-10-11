@@ -1,13 +1,12 @@
-From 5923a90079ad69c7fbfe8f526d092c72af2e6683 Mon Sep 17 00:00:00 2001
+From 27a0c84dcdef35b2b3dfef0bdbd3d29fec6ebffe Mon Sep 17 00:00:00 2001
 From: Your Name <you@example.com>
-Date: Sat, 11 Oct 2025 08:24:32 +0000
-Subject: [PATCH] Add chapter metadata
+Date: Tue, 23 Sep 2025 21:14:33 +0000
+Subject: [PATCH] Add Chapters
 
 ---
  app.py                   |   4 +-
- generate_audiobook.py    |  23 +++++---
  utils/audiobook_utils.py | 117 +++++++++++++++++++++++++++------------
- 3 files changed, 100 insertions(+), 44 deletions(-)
+ 2 files changed, 84 insertions(+), 37 deletions(-)
 
 diff --git a/app.py b/app.py
 index 8035285..7370896 100644
@@ -15,91 +14,20 @@ index 8035285..7370896 100644
 +++ b/app.py
 @@ -345,7 +345,7 @@ with gr.Blocks(css=css, theme=gr.themes.Default()) as gradio_app:
                  output_format = gr.Dropdown(
-                     ["M4B (Chapters & Cover)", "AAC", "M4A", "MP3", "WAV", "OPUS", "FLAC", "PCM"],
+                     ["M4B (Chapters & Cover)", "AAC", "M4A", "MP3", "WAV", "OPUS", "FLAC", "PCM"], 
                      label="Output Format",
 -                    value="M4B (Chapters & Cover)",
 +                    value="M4A",
                      info="M4B supports chapters and cover art"
                  )
-
+             
 @@ -465,4 +465,4 @@ app = gr.mount_gradio_app(app, gradio_app, path="/")  # Mount Gradio at root
-
+ 
  if __name__ == "__main__":
      import uvicorn
 -    uvicorn.run(app, host="0.0.0.0", port=7860)
 \ No newline at end of file
 +    uvicorn.run(app, host="0.0.0.0", port=7860)
-diff --git a/generate_audiobook.py b/generate_audiobook.py
-index 1711db2..65f82f3 100755
---- a/generate_audiobook.py
-+++ b/generate_audiobook.py
-@@ -16,6 +16,7 @@ You should have received a copy of the GNU General Public License
- along with this program.  If not, see <https://www.gnu.org/licenses/>.
- """
-
-+import unicodedata
- import shutil
- from openai import OpenAI, AsyncOpenAI
- from tqdm import tqdm
-@@ -51,15 +52,19 @@ async_openai_client = AsyncOpenAI(
-     base_url=TTS_BASE_URL, api_key=TTS_API_KEY
- )
-
-+
- def sanitize_filename(text):
-     # Remove or replace problematic characters
-     text = text.replace("'", '').replace('"', '').replace('/', ' ').replace('.', ' ')
-     text = text.replace(':', '').replace('?', '').replace('\\', '').replace('|', '')
-     text = text.replace('*', '').replace('<', '').replace('>', '').replace('&', 'and')
--
--    # Normalize whitespace and trim
--    text = ' '.join(text.split())
--
-+    text = text.replace(',', '_').replace(' ', '_')
-+
-+    # Normalize non-ASCII to closest ASCII equivalent
-+    text = unicodedata.normalize('NFKD', text).encode('ascii', 'ignore').decode('ascii')
-+
-+    # Collapse multiple underscores
-+    text = re.sub(r'_+', '_', text).strip('_')
-     return text
-
- def is_only_punctuation(text):
-@@ -735,13 +740,17 @@ async def generate_audio_with_multiple_voices(output_format, narrator_gender, ge
-
-     # Process tasks with progress updates
-     last_reported = -1
-+    current_chapter_audio = None
-     while tasks:
-         done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
-
-         # Store results as tasks complete
-         for completed_task in done:
-             idx = task_to_index[completed_task]
--            results_all[idx] = completed_task.result()
-+            result = completed_task.result()
-+            results_all[idx] = result
-+            if result and result["is_chapter_heading"]:
-+               current_chapter_audio = result['line']
-
-         tasks = list(pending)
-
-@@ -749,7 +758,7 @@ async def generate_audio_with_multiple_voices(output_format, narrator_gender, ge
-         if progress_counter > last_reported:
-             last_reported = progress_counter
-             percent = (progress_counter / total_lines) * 100
--            yield f"Generating audiobook. Progress: {percent:.1f}%"
-+            yield f"Generating audiobook. Chapter: {current_chapter_audio or 'N/A'}. Progress: {percent:.1f}%"
-
-     # All tasks have completed at this point and results_all is populated
-     results = [r for r in results_all if r is not None]  # Filter out empty lines
-@@ -1006,4 +1015,4 @@ async def main():
-     print(f"\n⏱️ **Execution Time:** {execution_time:.6f} seconds\n✅ Audiobook generation complete!")
-
- if __name__ == "__main__":
--    asyncio.run(main())
-\ No newline at end of file
-+    asyncio.run(main())
 diff --git a/utils/audiobook_utils.py b/utils/audiobook_utils.py
 index df8ac0b..20b4015 100644
 --- a/utils/audiobook_utils.py
@@ -107,14 +35,14 @@ index df8ac0b..20b4015 100644
 @@ -16,6 +16,8 @@ You should have received a copy of the GNU General Public License
  along with this program.  If not, see <https://www.gnu.org/licenses/>.
  """
-
+ 
 +import tempfile
 +import shutil
  import subprocess
  import re
  import os
 @@ -657,49 +659,94 @@ def add_silence_to_audio_file_by_reencoding_using_ffmpeg(temp_dir, input_file_na
-
+ 
  def merge_chapters_to_standard_audio_file(chapter_files):
      """
 -    Uses ffmpeg to merge all chapter files into a standard M4A audio file).
@@ -123,13 +51,13 @@ index df8ac0b..20b4015 100644
 +    Merge chapter audio files into a standard M4A with jumpable chapters.
 +    Converts WAV/PCM/AAC chapters to AAC/M4A before concatenation.
 +    Uses original filenames (without extension) as chapter titles.
-
+ 
      Args:
 -        chapter_files (list): A list of the paths to the individual chapter audio files.
 +        chapter_files (list): A list of the names of individual chapter audio files (inside temp_audio).
      """
 -    file_list_path = "chapter_list.txt"
--
+-    
 -    # Write the list of chapter files to a text file (ffmpeg input)
 -    with open(file_list_path, "w", encoding='utf-8') as f:
 -        for chapter in chapter_files:
@@ -140,24 +68,24 @@ index df8ac0b..20b4015 100644
 -            f.write(f"file '{chapter_path}'\n")
 +    if not chapter_files:
 +        raise ValueError("No chapter files provided.")
-
+ 
 -    # Construct the output file path
 -    output_file = "generated_audiobooks/audiobook.m4a"
 +    os.makedirs("generated_audiobooks", exist_ok=True)
-
+ 
 -    # Validate file list exists
 -    if not validate_file_path(file_list_path):
 -        raise ValueError("Chapter list file is invalid")
 +    # Temporary folder for converted M4A chapters
 +    temp_dir = tempfile.mkdtemp(prefix="chapters_")
 +    converted_files = []
-
+ 
 -    # Construct secure ffmpeg command
 -    ffmpeg_cmd = [
--        "ffmpeg", "-y",
--        "-f", "concat", "-safe", "0",
--        "-i", file_list_path,
--        "-c", "copy",
+-        "ffmpeg", "-y", 
+-        "-f", "concat", "-safe", "0", 
+-        "-i", file_list_path, 
+-        "-c", "copy", 
 +    # 1. Convert all chapters to M4A (if needed)
 +    for chapter in chapter_files:
 +        input_path = os.path.join("temp_audio", chapter)
@@ -230,19 +158,19 @@ index df8ac0b..20b4015 100644
 +    shutil.rmtree(temp_dir)
 +
 +    print(f"Audiobook created with chapters: {output_file}")
-
+ 
 -    # Use centralized secure command execution
 -    allowed_ffmpeg_commands = ['ffmpeg']
 -    result = run_shell_command_secure(ffmpeg_cmd, allowed_ffmpeg_commands)
--
+-    
 -    if not result or result.returncode != 0:
 -        error_msg = result.stderr if result else "Unknown error"
 -        raise RuntimeError(f"FFmpeg failed: {error_msg}")
--
+-        
 -    print(f"Audiobook created: {output_file}")
-
+ 
  def assemble_chapter_with_ffmpeg(chapter_file, line_indices, temp_line_audio_dir, temp_audio_dir):
      """
---
+-- 
 2.34.1
 
