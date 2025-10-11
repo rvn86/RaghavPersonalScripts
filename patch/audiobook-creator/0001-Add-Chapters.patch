@@ -1,12 +1,13 @@
-From 27a0c84dcdef35b2b3dfef0bdbd3d29fec6ebffe Mon Sep 17 00:00:00 2001
-From: Your Name <you@example.com>
-Date: Tue, 23 Sep 2025 21:14:33 +0000
-Subject: [PATCH] Add Chapters
+From a93d968e27508ef5282ee98003dfe3dfb41b6660 Mon Sep 17 00:00:00 2001
+From: Raghav <ragha.nv@gmail.com>
+Date: Sat, 11 Oct 2025 16:27:17 -0700
+Subject: [PATCH] Add chapters
 
 ---
  app.py                   |   4 +-
+ generate_audiobook.py    |  21 +++++--
  utils/audiobook_utils.py | 117 +++++++++++++++++++++++++++------------
- 2 files changed, 84 insertions(+), 37 deletions(-)
+ 3 files changed, 99 insertions(+), 43 deletions(-)
 
 diff --git a/app.py b/app.py
 index 8035285..7370896 100644
@@ -28,6 +29,65 @@ index 8035285..7370896 100644
 -    uvicorn.run(app, host="0.0.0.0", port=7860)
 \ No newline at end of file
 +    uvicorn.run(app, host="0.0.0.0", port=7860)
+diff --git a/generate_audiobook.py b/generate_audiobook.py
+index 1711db2..9df339f 100755
+--- a/generate_audiobook.py
++++ b/generate_audiobook.py
+@@ -16,6 +16,7 @@ You should have received a copy of the GNU General Public License
+ along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ """
+ 
++import unicodedata
+ import shutil
+ from openai import OpenAI, AsyncOpenAI
+ from tqdm import tqdm
+@@ -56,10 +57,13 @@ def sanitize_filename(text):
+     text = text.replace("'", '').replace('"', '').replace('/', ' ').replace('.', ' ')
+     text = text.replace(':', '').replace('?', '').replace('\\', '').replace('|', '')
+     text = text.replace('*', '').replace('<', '').replace('>', '').replace('&', 'and')
+-    
+-    # Normalize whitespace and trim
+-    text = ' '.join(text.split())
+-    
++    text = text.replace(',', '_').replace(' ', '_')
++
++    # Normalize non-ASCII to closest ASCII equivalent
++    text = unicodedata.normalize('NFKD', text).encode('ascii', 'ignore').decode('ascii')
++
++    # Collapse multiple underscores
++    text = re.sub(r'_+', '_', text).strip('_')
+     return text
+ 
+ def is_only_punctuation(text):
+@@ -381,13 +385,18 @@ async def generate_audio_with_single_voice(output_format, narrator_gender, gener
+     
+     # Process tasks with progress updates
+     last_reported = -1
++    latest_chapter_name = None
+     while tasks:
+         done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+         
+         # Store results as tasks complete
+         for completed_task in done:
+             idx = task_to_index[completed_task]
+-            results_all[idx] = completed_task.result()
++            result = completed_task.result()
++            results_all[idx] = result
++
++            if result and result["is_chapter_heading"]:
++                latest_chapter_name = result['line']
+         
+         tasks = list(pending)
+         
+@@ -395,7 +404,7 @@ async def generate_audio_with_single_voice(output_format, narrator_gender, gener
+         if progress_counter > last_reported:
+             last_reported = progress_counter
+             percent = (progress_counter / total_size) * 100
+-            yield f"Generating audiobook. Progress: {percent:.1f}%"
++            yield f"Generating audiobook. Chapter: {latest_chapter_name or 'N/A'}. Progress: {percent:.1f}%"
+     
+     # All tasks have completed at this point and results_all is populated
+     results = [r for r in results_all if r is not None]  # Filter out empty lines
 diff --git a/utils/audiobook_utils.py b/utils/audiobook_utils.py
 index df8ac0b..20b4015 100644
 --- a/utils/audiobook_utils.py
@@ -172,5 +232,5 @@ index df8ac0b..20b4015 100644
  def assemble_chapter_with_ffmpeg(chapter_file, line_indices, temp_line_audio_dir, temp_audio_dir):
      """
 -- 
-2.34.1
+2.36.1.windows.1
 
