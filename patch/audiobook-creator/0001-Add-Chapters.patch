@@ -1,4 +1,4 @@
-From 1e553a4552bb936dddc253d920e0545d72d10f8f Mon Sep 17 00:00:00 2001
+From 672b66346f46c53edb87b61d18589e78aff08739 Mon Sep 17 00:00:00 2001
 From: Raghav <ragha.nv@gmail.com>
 Date: Sat, 11 Oct 2025 16:27:17 -0700
 Subject: [PATCH] Add chapters
@@ -6,8 +6,8 @@ Subject: [PATCH] Add chapters
 ---
  app.py                   |   4 +-
  generate_audiobook.py    |  34 +++++--
- utils/audiobook_utils.py | 197 +++++++++++++++++++++++++++++++--------
- 3 files changed, 186 insertions(+), 49 deletions(-)
+ utils/audiobook_utils.py | 210 ++++++++++++++++++++++++++++++++-------
+ 3 files changed, 199 insertions(+), 49 deletions(-)
 
 diff --git a/app.py b/app.py
 index 8035285..7370896 100644
@@ -143,7 +143,7 @@ index 1711db2..eadf28e 100755
          yield f"Audiobook in {output_format} format created successfully"
  
 diff --git a/utils/audiobook_utils.py b/utils/audiobook_utils.py
-index df8ac0b..c2533d7 100644
+index df8ac0b..8581144 100644
 --- a/utils/audiobook_utils.py
 +++ b/utils/audiobook_utils.py
 @@ -16,6 +16,8 @@ You should have received a copy of the GNU General Public License
@@ -155,33 +155,47 @@ index df8ac0b..c2533d7 100644
  import subprocess
  import re
  import os
-@@ -655,53 +657,159 @@ def add_silence_to_audio_file_by_reencoding_using_ffmpeg(temp_dir, input_file_na
+@@ -655,53 +657,172 @@ def add_silence_to_audio_file_by_reencoding_using_ffmpeg(temp_dir, input_file_na
      except OSError as e:
          raise RuntimeError(f"Failed to rename file: {e}")
  
 -def merge_chapters_to_standard_audio_file(chapter_files):
-+import json
-+import os
-+
-+def write_line_timings_debug(line_timings):
-+    """
-+    Writes line timings to a JSON file for debugging.
-+    Hardcoded file path: "generated_audiobooks/debug/line_timings_debug.json"
-+    """
-+    debug_dir = "generated_audiobooks/debug"
-+    os.makedirs(debug_dir, exist_ok=True)
-+
-+    debug_file_path = os.path.join(debug_dir, "line_timings_debug.json")
-+
-+    with open(debug_file_path, "w", encoding="utf-8") as f:
-+        json.dump(line_timings, f, indent=2, ensure_ascii=False)
-+
-+    print(f"Line timings debug file written to: {debug_file_path}")
-+
-+
 +def generate_line_timings_json(line_timings):
      """
 -    Uses ffmpeg to merge all chapter files into a standard M4A audio file).
++    Convert line timing data to a compact JSON string suitable for embedding
++    in FFmpeg metadata (comment field).
+ 
+-    This function takes a list of chapter files and an output format as input, and generates a standard M4A audio file.
++    Escapes special characters per FFMETADATA spec:
++        '=', ';', '#', '\\', and newline.
++    """
++    if not line_timings:
++        return None
++
++    def escape_ffmetadata_chars(text: str) -> str:
++        text = text.replace("\\", "\\\\")
++        text = text.replace("=", "\\=")
++        text = text.replace(";", "\\;")
++        text = text.replace("#", "\\#")
++        text = text.replace("\n", "\\n")
++        return text
++
++    line_data = [
++        {
++            "startTime": round(line["start"], 3),
++            "endTime": round(line["end"], 3),
++            "text": escape_ffmetadata_chars(line["text"])
++        }
++        for line in line_timings
++    ]
++
++    json_comment = json.dumps(line_data, ensure_ascii=False)
++
++    return json_comment
++
++def generate_line_timings_json(line_timings):
++    """
 +    Convert line timing data to a compact JSON string suitable for embedding
 +    in FFmpeg metadata (comment field).
 +    """
@@ -199,8 +213,7 @@ index df8ac0b..c2533d7 100644
 +
 +    json_comment = json.dumps(line_data, ensure_ascii=False)
 +    json_comment = json_comment.replace(";", ",")
- 
--    This function takes a list of chapter files and an output format as input, and generates a standard M4A audio file.
++
 +    return json_comment
 +
 +def merge_chapters_to_standard_audio_file(chapter_files, line_timings=None):
@@ -328,10 +341,10 @@ index df8ac0b..c2533d7 100644
 -    print(f"Audiobook created: {output_file}")
 +    # 6. Clean up
 +    shutil.rmtree(temp_dir)
-+
-+    print(f"Audiobook created with chapters: {output_file}")
  
 -def assemble_chapter_with_ffmpeg(chapter_file, line_indices, temp_line_audio_dir, temp_audio_dir):
++    print(f"Audiobook created with chapters: {output_file}")
++
 +
 +def get_duration(path):
 +    result = subprocess.run(
@@ -351,7 +364,7 @@ index df8ac0b..c2533d7 100644
      """
      Memory-efficient chapter assembly using FFmpeg instead of PyDub.
      
-@@ -719,7 +827,10 @@ def assemble_chapter_with_ffmpeg(chapter_file, line_indices, temp_line_audio_dir
+@@ -719,7 +840,10 @@ def assemble_chapter_with_ffmpeg(chapter_file, line_indices, temp_line_audio_dir
      
      # Create a temporary file list for FFmpeg concat
      file_list_path = os.path.join(temp_audio_dir, f"chapter_list_{chapter_file}.txt")
@@ -363,7 +376,7 @@ index df8ac0b..c2533d7 100644
      try:
          with open(file_list_path, "w", encoding='utf-8') as f:
              for line_index in sorted(line_indices):
-@@ -727,7 +838,17 @@ def assemble_chapter_with_ffmpeg(chapter_file, line_indices, temp_line_audio_dir
+@@ -727,7 +851,17 @@ def assemble_chapter_with_ffmpeg(chapter_file, line_indices, temp_line_audio_dir
                  # Use absolute path to avoid issues with FFmpeg concat
                  abs_line_path = os.path.abspath(line_path)
                  f.write(f"file '{abs_line_path}'\n")
