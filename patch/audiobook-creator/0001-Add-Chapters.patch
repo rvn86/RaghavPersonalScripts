@@ -1,13 +1,13 @@
-From a93d968e27508ef5282ee98003dfe3dfb41b6660 Mon Sep 17 00:00:00 2001
+From f20bef42922eaf7e6d567d71ea8ec0e8cad5d841 Mon Sep 17 00:00:00 2001
 From: Raghav <ragha.nv@gmail.com>
 Date: Sat, 11 Oct 2025 16:27:17 -0700
 Subject: [PATCH] Add chapters
 
 ---
  app.py                   |   4 +-
- generate_audiobook.py    |  21 +++++--
- utils/audiobook_utils.py | 117 +++++++++++++++++++++++++++------------
- 3 files changed, 99 insertions(+), 43 deletions(-)
+ generate_audiobook.py    |  34 ++++++--
+ utils/audiobook_utils.py | 180 ++++++++++++++++++++++++++++++---------
+ 3 files changed, 169 insertions(+), 49 deletions(-)
 
 diff --git a/app.py b/app.py
 index 8035285..7370896 100644
@@ -30,7 +30,7 @@ index 8035285..7370896 100644
 \ No newline at end of file
 +    uvicorn.run(app, host="0.0.0.0", port=7860)
 diff --git a/generate_audiobook.py b/generate_audiobook.py
-index 1711db2..9df339f 100755
+index 1711db2..b624d6a 100755
 --- a/generate_audiobook.py
 +++ b/generate_audiobook.py
 @@ -16,6 +16,7 @@ You should have received a copy of the GNU General Public License
@@ -88,8 +88,62 @@ index 1711db2..9df339f 100755
      
      # All tasks have completed at this point and results_all is populated
      results = [r for r in results_all if r is not None]  # Filter out empty lines
+@@ -410,6 +419,7 @@ async def generate_audio_with_single_voice(output_format, narrator_gender, gener
+     # Second pass: Organize by chapters
+     chapter_organization_bar = tqdm(total=len(results), unit="result", desc="Organizing Chapters")
+     
++    chapter_line_text_map = {}
+     for result in sorted(results, key=lambda x: x["index"]):
+         # Check if this is a chapter heading
+         if result["is_chapter_heading"]:
+@@ -422,6 +432,7 @@ async def generate_audio_with_single_voice(output_format, narrator_gender, gener
+             
+         # Add this line index to the chapter
+         chapter_line_map[current_chapter_audio].append(result["index"])
++        chapter_line_text_map[result["index"]].append(result["line"])
+         chapter_organization_bar.update(1)
+     
+     chapter_organization_bar.close()
+@@ -430,13 +441,18 @@ async def generate_audio_with_single_voice(output_format, narrator_gender, gener
+     # Third pass: Concatenate audio files for each chapter in order
+     chapter_assembly_bar = tqdm(total=len(chapter_files), unit="chapter", desc="Assembling Chapters")
+     
++    SILENCE_DURATION_MS = 1000
++    line_timings = []
+     for chapter_file in chapter_files:
+         # Use FFmpeg-based assembly instead of PyDub for memory efficiency
+         assemble_chapter_with_ffmpeg(
+             chapter_file, 
+             chapter_line_map[chapter_file], 
+             temp_line_audio_dir, 
+-            temp_audio_dir
++            temp_audio_dir,
++            chapter_line_text_map[chapter_file],
++            line_timings,
++            SILENCE_DURATION_MS
+         )
+         
+         chapter_assembly_bar.update(1)
+@@ -453,7 +469,7 @@ async def generate_audio_with_single_voice(output_format, narrator_gender, gener
+         chapter_path = os.path.join(temp_audio_dir, chapter_file)
+         
+         # Use FFmpeg-based silence addition instead of PyDub for memory efficiency
+-        add_silence_to_chapter_with_ffmpeg(chapter_path, 1000)  # 1 second silence
++        add_silence_to_chapter_with_ffmpeg(chapter_path, SILENCE_DURATION_MS)  # 1 second silence
+         
+         post_processing_bar.update(1)
+         yield f"Added silence to chapter: {chapter_file}"
+@@ -483,7 +499,7 @@ async def generate_audio_with_single_voice(output_format, narrator_gender, gener
+     else:
+         # Merge all chapter files into a standard M4A audiobook
+         yield "Creating final audiobook..."
+-        merge_chapters_to_standard_audio_file(m4a_chapter_files)
++        merge_chapters_to_standard_audio_file(m4a_chapter_files, line_timings)
+         convert_audio_file_formats("m4a", output_format, "generated_audiobooks", "audiobook")
+         yield f"Audiobook in {output_format} format created successfully"
+ 
 diff --git a/utils/audiobook_utils.py b/utils/audiobook_utils.py
-index df8ac0b..20b4015 100644
+index df8ac0b..97213b2 100644
 --- a/utils/audiobook_utils.py
 +++ b/utils/audiobook_utils.py
 @@ -16,6 +16,8 @@ You should have received a copy of the GNU General Public License
@@ -101,13 +155,33 @@ index df8ac0b..20b4015 100644
  import subprocess
  import re
  import os
-@@ -657,49 +659,94 @@ def add_silence_to_audio_file_by_reencoding_using_ffmpeg(temp_dir, input_file_na
+@@ -655,53 +657,142 @@ def add_silence_to_audio_file_by_reencoding_using_ffmpeg(temp_dir, input_file_na
+     except OSError as e:
+         raise RuntimeError(f"Failed to rename file: {e}")
  
- def merge_chapters_to_standard_audio_file(chapter_files):
+-def merge_chapters_to_standard_audio_file(chapter_files):
++import json
++import os
++
++def write_line_timings_debug(line_timings):
++    """
++    Writes line timings to a JSON file for debugging.
++    Hardcoded file path: "generated_audiobooks/debug/line_timings_debug.json"
      """
 -    Uses ffmpeg to merge all chapter files into a standard M4A audio file).
--
++    debug_dir = "generated_audiobooks/debug"
++    os.makedirs(debug_dir, exist_ok=True)
+ 
 -    This function takes a list of chapter files and an output format as input, and generates a standard M4A audio file.
++    debug_file_path = os.path.join(debug_dir, "line_timings_debug.json")
++
++    with open(debug_file_path, "w", encoding="utf-8") as f:
++        json.dump(line_timings, f, indent=2, ensure_ascii=False)
++
++    print(f"Line timings debug file written to: {debug_file_path}")
++
++def merge_chapters_to_standard_audio_file(chapter_files, line_timings=None):
++    """
 +    Merge chapter audio files into a standard M4A with jumpable chapters.
 +    Converts WAV/PCM/AAC chapters to AAC/M4A before concatenation.
 +    Uses original filenames (without extension) as chapter titles.
@@ -201,6 +275,18 @@ index df8ac0b..20b4015 100644
 +            f.write(f"[CHAPTER]\nTIMEBASE=1/1000\nSTART={start_time}\nEND={end_time}\ntitle={chapter_title}\n")
 +
 +            start_time = end_time
++ 
++        # --- Line-level text timings for embedding ---
++        # line_timings: list of dicts with keys: text, start, end
++        write_line_timings_debug(line_timings)
++        if line_timings:
++            print(f"Adding line timing information to the metadata")
++            for idx, line in enumerate(line_timings):
++                line_start = int(line["start"] * 1000)  # convert to ms
++                line_end = int(line["end"] * 1000)
++                # escape newlines and semicolons
++                safe_text = line["text"].replace("\n", "\\n").replace(";", ",")
++                f.write(f"[LINE]\nTIMEBASE=1/1000\nSTART={line_start}\nEND={line_end}\ntext={safe_text}\n")
 +
 +    # 5. Attach metadata
 +    output_file = "generated_audiobooks/audiobook.m4a"
@@ -229,8 +315,56 @@ index df8ac0b..20b4015 100644
 -        
 -    print(f"Audiobook created: {output_file}")
  
- def assemble_chapter_with_ffmpeg(chapter_file, line_indices, temp_line_audio_dir, temp_audio_dir):
+-def assemble_chapter_with_ffmpeg(chapter_file, line_indices, temp_line_audio_dir, temp_audio_dir):
++def get_duration(path):
++    result = subprocess.run(
++            [
++                "ffprobe", "-v", "error",
++                "-show_entries", "format=duration",
++                "-of", "default=noprint_wrappers=1:nokey=1",
++                path
++            ],
++            capture_output=True,
++            text=True,
++            check=True
++        )
++    return float(result.stdout.strip())
++
++def assemble_chapter_with_ffmpeg(chapter_file, line_indices, temp_line_audio_dir, temp_audio_dir, line_text, timings = [], silence_duration_ms=0):
      """
+     Memory-efficient chapter assembly using FFmpeg instead of PyDub.
+     
+@@ -719,7 +810,10 @@ def assemble_chapter_with_ffmpeg(chapter_file, line_indices, temp_line_audio_dir
+     
+     # Create a temporary file list for FFmpeg concat
+     file_list_path = os.path.join(temp_audio_dir, f"chapter_list_{chapter_file}.txt")
+-    
++    if timings:
++        current_time = timings[-1]['end']
++    else:
++        current_time = 0.0
+     try:
+         with open(file_list_path, "w", encoding='utf-8') as f:
+             for line_index in sorted(line_indices):
+@@ -727,7 +821,17 @@ def assemble_chapter_with_ffmpeg(chapter_file, line_indices, temp_line_audio_dir
+                 # Use absolute path to avoid issues with FFmpeg concat
+                 abs_line_path = os.path.abspath(line_path)
+                 f.write(f"file '{abs_line_path}'\n")
+-        
++                start_time = current_time
++                current_time =  start_time + get_duration(abs_line_path)
++                timings.append({
++                    "text": line_text[line_index],
++                    "start": start_time,
++                    "end": current_time
++                })
++
++            if line_indices:
++                timings[-1]['end'] += (silence_duration_ms / 1000.0)
++
+         # Create the full chapter file path
+         chapter_path = os.path.join(temp_audio_dir, chapter_file)
+         
 -- 
 2.36.1.windows.1
 
