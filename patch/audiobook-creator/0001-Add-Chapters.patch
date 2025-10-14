@@ -1,19 +1,23 @@
-From d7fdc9894d101b27f672b0287ef07f3c0717dbdf Mon Sep 17 00:00:00 2001
+From 0db4eff248642f8ea5d8d796c982e9b83ca32a1a Mon Sep 17 00:00:00 2001
 From: Raghav <ragha.nv@gmail.com>
 Date: Sat, 11 Oct 2025 16:27:17 -0700
 Subject: [PATCH] Add chapters
 
 ---
- app.py                   | 250 +++++++++-------
- generate_audiobook.py    | 606 +++++++++++++++++++--------------------
- utils/audiobook_utils.py | 188 +++++++++---
- 3 files changed, 588 insertions(+), 456 deletions(-)
+ app.py                   | 245 ++++++++------
+ generate_audiobook.py    | 666 ++++++++++++++++++++-------------------
+ utils/audiobook_utils.py | 502 ++++++++++++++++++-----------
+ 3 files changed, 800 insertions(+), 613 deletions(-)
 
 diff --git a/app.py b/app.py
-index 8035285..a442539 100644
+index 8035285..ea893ff 100644
 --- a/app.py
 +++ b/app.py
-@@ -19,6 +19,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
+@@ -16,9 +16,11 @@ You should have received a copy of the GNU General Public License
+ along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ """
+ 
++import shutil
  import gradio as gr
  import os
  import traceback
@@ -21,7 +25,7 @@ index 8035285..a442539 100644
  from fastapi import FastAPI
  from book_to_txt import process_book_and_extract_text, save_book
  from identify_characters_and_output_book_to_jsonl import process_book_and_identify_characters
-@@ -38,25 +39,44 @@ def validate_book_upload(book_file, book_title):
+@@ -38,25 +40,44 @@ def validate_book_upload(book_file, book_title):
      """Validate book upload and return a notification"""
      if book_file is None:
          return gr.Warning("Please upload a book file first.")
@@ -70,7 +74,7 @@ index 8035285..a442539 100644
          # Final yield with success notification
          yield last_output
          return gr.Info("Text extracted successfully! You can now edit the content.", duration=5)
-@@ -76,10 +96,10 @@ def save_book_wrapper(text_content, book_title):
+@@ -76,10 +97,10 @@ def save_book_wrapper(text_content, book_title):
      """Wrapper for saving book with validation"""
      if not text_content:
          return gr.Warning("No text content to save.")
@@ -83,7 +87,7 @@ index 8035285..a442539 100644
      try:
          save_book(text_content)
          return gr.Info("📖 Book saved successfully as 'converted_book.txt'!", duration=10)
-@@ -101,7 +121,7 @@ async def identify_characters_wrapper(book_title):
+@@ -101,7 +122,7 @@ async def identify_characters_wrapper(book_title):
          async for output in process_book_and_identify_characters(book_title):
              last_output = output
              yield output  # Yield each progress update
@@ -92,7 +96,7 @@ index 8035285..a442539 100644
          # Final yield with success notification
          yield gr.Info("Character identification complete! You can now add emotion tags or proceed to audiobook generation.", duration=5)
          yield last_output
-@@ -129,7 +149,7 @@ async def add_emotion_tags_wrapper():
+@@ -129,7 +150,7 @@ async def add_emotion_tags_wrapper():
          async for output in process_emotion_tags():
              last_output = output
              yield output
@@ -101,7 +105,7 @@ index 8035285..a442539 100644
          # Final yield with success notification
          yield gr.Info("Emotion tags added successfully! You can now generate the audiobook.", duration=5)
          yield last_output
-@@ -141,61 +161,62 @@ async def add_emotion_tags_wrapper():
+@@ -141,61 +162,62 @@ async def add_emotion_tags_wrapper():
          yield None
          return
  
@@ -190,7 +194,7 @@ index 8035285..a442539 100644
          return
  
  def update_emotion_tags_status_and_state():
-@@ -206,80 +227,80 @@ def update_emotion_tags_status_and_state():
+@@ -206,80 +228,80 @@ def update_emotion_tags_status_and_state():
  with gr.Blocks(css=css, theme=gr.themes.Default()) as gradio_app:
      gr.Markdown("# 📖 Audiobook Creator")
      gr.Markdown("Create professional audiobooks from your ebooks in just a few steps.")
@@ -292,7 +296,7 @@ index 8035285..a442539 100644
                  placeholder="Character identification progress will be shown here",
                  interactive=False,
                  lines=3
-@@ -290,9 +311,9 @@ with gr.Blocks(css=css, theme=gr.themes.Default()) as gradio_app:
+@@ -290,9 +312,9 @@ with gr.Blocks(css=css, theme=gr.themes.Default()) as gradio_app:
      with gr.Row(visible=emotion_tags_visible):
          with gr.Column():
              gr.Markdown('<div class="step-heading">🎭 Step 3.5: Add Emotion Tags (Optional - Requires LLM)</div>')
@@ -304,7 +308,7 @@ index 8035285..a442539 100644
              with gr.Accordion("What are Emotion Tags?", open=True):
                  gr.Markdown("""
                  **Emotion Tags enhance your audiobook by adding natural expressions:**
-@@ -305,12 +326,12 @@ with gr.Blocks(css=css, theme=gr.themes.Default()) as gradio_app:
+@@ -305,12 +327,12 @@ with gr.Blocks(css=css, theme=gr.themes.Default()) as gradio_app:
                  * **`<groan>`** - For groaning sounds expressing discomfort/frustration
                  * **`<yawn>`** - For yawning or expressions of tiredness
                  * **`<gasp>`** - For gasping sounds of surprise/shock
@@ -320,7 +324,7 @@ index 8035285..a442539 100644
                  placeholder="Emotion tags processing progress will be shown here",
                  interactive=False,
                  lines=3
-@@ -319,39 +340,47 @@ with gr.Blocks(css=css, theme=gr.themes.Default()) as gradio_app:
+@@ -319,39 +341,47 @@ with gr.Blocks(css=css, theme=gr.themes.Default()) as gradio_app:
      with gr.Row():
          with gr.Column():
              gr.Markdown('<div class="step-heading">🎧 Step 4: Generate Audiobook</div>')
@@ -378,7 +382,7 @@ index 8035285..a442539 100644
              with gr.Group(visible=emotion_tags_visible) as emotion_tags_group:
                  emotion_tags_status_display = gr.Radio(
                      choices=["✅ Emotion tags processed - will be used in audiobook", "❌ No emotion tags - standard narration will be used"],
-@@ -360,56 +389,71 @@ with gr.Blocks(css=css, theme=gr.themes.Default()) as gradio_app:
+@@ -360,56 +390,65 @@ with gr.Blocks(css=css, theme=gr.themes.Default()) as gradio_app:
                      interactive=False,
                      info="This will update automatically when you process emotion tags in Step 3.5"
                  )
@@ -401,7 +405,7 @@ index 8035285..a442539 100644
              with gr.Group(visible=False) as download_box:
 -                gr.Markdown("### 📥 Download Your Audiobook")
 +                gr.Markdown("### 📥 Download Your Files")
-+                
++
 +                # File component for audiobook
                  audiobook_file = gr.File(
                      label="Download Generated Audiobook",
@@ -409,19 +413,13 @@ index 8035285..a442539 100644
                      type="filepath"
                  )
 -    
-+                
++
 +                # File component for updated knowledge base
 +                knowledge_base_file = gr.File(
 +                    label="Download Updated Knowledge Base",
 +                    interactive=False,
 +                    type="filepath"
 +                )
-+    # File component for updated knowledge base
-+    knowledge_base_file = gr.File(
-+        label="Download Updated Knowledge Base",
-+        interactive=False,
-+        type="filepath"
-+    )
 +
      # Connections with proper handling of Gradio notifications
      validate_btn.click(
@@ -471,7 +469,7 @@ index 8035285..a442539 100644
          outputs=[emotion_tags_output],
          queue=True
      ).then(
-@@ -418,20 +462,26 @@ with gr.Blocks(css=css, theme=gr.themes.Default()) as gradio_app:
+@@ -418,20 +457,26 @@ with gr.Blocks(css=css, theme=gr.themes.Default()) as gradio_app:
          inputs=[],
          outputs=[emotion_tags_status_display, emotion_tags_processed]
      )
@@ -505,7 +503,7 @@ index 8035285..a442539 100644
      # Navigation button functionality for textbox scrolling
      top_btn.click(
          None,
-@@ -446,7 +496,7 @@ with gr.Blocks(css=css, theme=gr.themes.Default()) as gradio_app:
+@@ -446,7 +491,7 @@ with gr.Blocks(css=css, theme=gr.themes.Default()) as gradio_app:
          }
          """
      )
@@ -514,7 +512,7 @@ index 8035285..a442539 100644
      bottom_btn.click(
          None,
          inputs=[],
-@@ -465,4 +515,4 @@ app = gr.mount_gradio_app(app, gradio_app, path="/")  # Mount Gradio at root
+@@ -465,4 +510,4 @@ app = gr.mount_gradio_app(app, gradio_app, path="/")  # Mount Gradio at root
  
  if __name__ == "__main__":
      import uvicorn
@@ -522,7 +520,7 @@ index 8035285..a442539 100644
 \ No newline at end of file
 +    uvicorn.run(app, host="0.0.0.0", port=7860)
 diff --git a/generate_audiobook.py b/generate_audiobook.py
-index 1711db2..ea0c87b 100755
+index 1711db2..2bc97d2 100755
 --- a/generate_audiobook.py
 +++ b/generate_audiobook.py
 @@ -16,6 +16,7 @@ You should have received a copy of the GNU General Public License
@@ -661,23 +659,64 @@ index 1711db2..ea0c87b 100755
      except ValueError as e:
          return False, f"Book file validation error: {str(e)}", None
      except RuntimeError as e:
-@@ -207,6 +214,151 @@ def validate_book_for_m4b_generation(book_path):
+@@ -207,7 +214,203 @@ def validate_book_for_m4b_generation(book_path):
      except Exception as e:
          return False, f"Unexpected error during book validation: {str(e)}", None
  
+-async def generate_audio_with_single_voice(output_format, narrator_gender, generate_m4b_audiobook_file=False, book_path="", add_emotion_tags=False):
++def process_chapters(lines, knowledge_base_file):
++    chapters = split_lines_into_chapters(lines)
++    chapter_to_output = {}
++    with open(knowledge_base_file, 'r') as f:
++        knowledge_base = json.load(f)
++
++    for chapter in chapters:
++        entities = knowledge_base.copy() #identify_entities(chapter["chapter_text"], knowledge_base)
++        chapter_title = os.path.splitext(os.path.basename(chapter["chapter_filename"]))[0]
++        chapter_to_output[chapter_title] = entities
++        knowledge_base.update(entities)
++
++    return chapter_to_output, knowledge_base
++
++def split_lines_into_chapters(lines):
++    chapters = []
++    current_chapter_lines = []
++    current_chapter_filename = "Introduction.wav"
++
++    for line in lines:
++        if check_if_chapter_heading(line):
++            if current_chapter_lines:
++                chapters.append({
++                    "chapter_filename": current_chapter_filename,
++                    "chapter_text": "\n".join(current_chapter_lines)
++                })
++            current_chapter_filename = f"{sanitize_filename(line)}.wav"
++            current_chapter_lines = []
++
++        current_chapter_lines.append(line)
++
++    # Add the last chapter
++    if current_chapter_lines:
++        chapters.append({
++            "chapter_filename": current_chapter_filename,
++            "chapter_text": "\n".join(current_chapter_lines)
++        })
++
++    return chapters
++
 +async def process_audio_results_and_generate_audiobook(
-+    results_all,
++    lines,
 +    task_to_index,
 +    tasks,
 +    progress_counter,
-+    total_lines,
 +    temp_line_audio_dir,
 +    temp_audio_dir,
 +    chapter_files,
 +    output_format,
 +    generate_m4b_audiobook_file,
 +    book_path,
-+    progress_bar
++    progress_bar,
++    kb_file
 +):
 +    """
 +    Common function to process audio results and generate the final audiobook.
@@ -687,6 +726,17 @@ index 1711db2..ea0c87b 100755
 +    chapter_index = 1
 +    current_chapter_audio = "Introduction.wav"
 +    chapter_line_map = {}
++    total_lines = len(lines)
++    results_all = [None] * total_lines
++
++    if kb_file:
++        chapter_entities, final_knowledge_base = process_chapters(lines, kb_file)
++
++        kb_output_path = os.path.join("generated_audiobooks", "knowledge_base.json")
++        with open(kb_output_path, "w", encoding="utf-8") as f:
++            json.dump(final_knowledge_base, f, ensure_ascii=False, indent=4)
++    else:
++        chapter_entities = None
 +
 +    # Process tasks with progress updates
 +    last_reported = -1
@@ -806,14 +856,15 @@ index 1711db2..ea0c87b 100755
 +    else:
 +        # Merge all chapter files into a standard M4A audiobook
 +        yield "Creating final audiobook..."
-+        merge_chapters_to_standard_audio_file(m4a_chapter_files, line_timings)
++        merge_chapters_to_standard_audio_file(m4a_chapter_files, line_timings, chapter_entities)
 +        convert_audio_file_formats("m4a", output_format, "generated_audiobooks", "audiobook")
 +        yield f"Audiobook in {output_format} format created successfully"
 +
- async def generate_audio_with_single_voice(output_format, narrator_gender, generate_m4b_audiobook_file=False, book_path="", add_emotion_tags=False):
++async def generate_audio_with_single_voice(output_format, narrator_gender, generate_m4b_audiobook_file=False, book_path="", add_emotion_tags=False, kb_file=None):
      # Read the text from the file
      """
-@@ -228,15 +380,15 @@ async def generate_audio_with_single_voice(output_format, narrator_gender, gener
+     Generate an audiobook using a single voice for narration and dialogues.
+@@ -228,15 +431,15 @@ async def generate_audio_with_single_voice(output_format, narrator_gender, gener
          str: Progress updates as the audiobook generation progresses through loading text, generating audio,
               organizing by chapters, assembling chapters, and post-processing steps.
      """
@@ -832,7 +883,7 @@ index 1711db2..ea0c87b 100755
          yield f"✅ Book validation successful! Title: {metadata.get('Title', 'Unknown')}, Author: {metadata.get('Author(s)', 'Unknown')}"
  
      # Check if emotion tags should be used and if they have been pre-applied
-@@ -247,20 +399,20 @@ async def generate_audio_with_single_voice(output_format, narrator_gender, gener
+@@ -247,20 +450,20 @@ async def generate_audio_with_single_voice(output_format, narrator_gender, gener
      else:
          with open("converted_book.txt", "r", encoding='utf-8') as f:
              text = f.read()
@@ -858,7 +909,7 @@ index 1711db2..ea0c87b 100755
          narrator_gender=narrator_gender
      )
  
-@@ -272,26 +424,21 @@ async def generate_audio_with_single_voice(output_format, narrator_gender, gener
+@@ -272,26 +475,21 @@ async def generate_audio_with_single_voice(output_format, narrator_gender, gener
  
      os.makedirs(temp_audio_dir, exist_ok=True)
      os.makedirs(temp_line_audio_dir, exist_ok=True)
@@ -890,7 +941,7 @@ index 1711db2..ea0c87b 100755
      async def process_single_line(line_index, line):
          async with semaphore:
              nonlocal progress_counter
-@@ -300,13 +447,13 @@ async def generate_audio_with_single_voice(output_format, narrator_gender, gener
+@@ -300,13 +498,13 @@ async def generate_audio_with_single_voice(output_format, narrator_gender, gener
                  progress_bar.update(1)
                  progress_counter += 1
                  return None
@@ -907,7 +958,7 @@ index 1711db2..ea0c87b 100755
              for part in annotated_parts:
                  text_to_speak = part["text"].strip()
  
-@@ -314,54 +461,54 @@ async def generate_audio_with_single_voice(output_format, narrator_gender, gener
+@@ -314,54 +512,54 @@ async def generate_audio_with_single_voice(output_format, narrator_gender, gener
                      continue
  
                  voice_to_speak_in = narrator_voice if part["type"] == "narration" else dialogue_voice
@@ -974,14 +1025,13 @@ index 1711db2..ea0c87b 100755
              return {
                  "index": line_index,
                  "is_chapter_heading": check_if_chapter_heading(line),
-@@ -375,129 +522,38 @@ async def generate_audio_with_single_voice(output_format, narrator_gender, gener
+@@ -375,129 +573,36 @@ async def generate_audio_with_single_voice(output_format, narrator_gender, gener
          task = asyncio.create_task(process_single_line(i, line))
          tasks.append(task)
          task_to_index[task] = i
 -    
-+
-     # Initialize results_all list
-     results_all = [None] * len(lines)
+-    # Initialize results_all list
+-    results_all = [None] * len(lines)
 -    
 -    # Process tasks with progress updates
 -    last_reported = -1
@@ -1063,7 +1113,7 @@ index 1711db2..ea0c87b 100755
 -        yield f"Added silence to chapter: {chapter_file}"
 -
 -    m4a_chapter_files = []
--
+ 
 -    # Convert all chapter files to M4A format
 -    for chapter_file in chapter_files:
 -        chapter_name = chapter_file.split('.')[0]
@@ -1092,18 +1142,18 @@ index 1711db2..ea0c87b 100755
 -        yield f"Audiobook in {output_format} format created successfully"
 +    # Call common processing function
 +    async for progress_msg in process_audio_results_and_generate_audiobook(
-+        results_all,
++        lines,
 +        task_to_index,
 +        tasks,
 +        progress_counter,
-+        total_size,
 +        temp_line_audio_dir,
 +        temp_audio_dir,
 +        chapter_files,
 +        output_format,
 +        generate_m4b_audiobook_file,
 +        book_path,
-+        progress_bar
++        progress_bar,
++        kb_file
 +    ):
 +        yield progress_msg
  
@@ -1124,7 +1174,7 @@ index 1711db2..ea0c87b 100755
      Returns:
          tuple: (success, json_data_array, message)
              - success (bool): True if emotion tags were successfully applied
-@@ -506,7 +562,7 @@ def apply_emotion_tags_to_multi_voice_data(json_data_array):
+@@ -506,7 +611,7 @@ def apply_emotion_tags_to_multi_voice_data(json_data_array):
      """
      if not os.path.exists("tag_added_lines_chunks.txt"):
          return False, json_data_array, "No pre-processed emotion tags found"
@@ -1133,7 +1183,7 @@ index 1711db2..ea0c87b 100755
      try:
          # Read the enhanced lines from tag_added_lines_chunks.txt
          with open("tag_added_lines_chunks.txt", "r", encoding='utf-8') as f:
-@@ -519,7 +575,7 @@ def apply_emotion_tags_to_multi_voice_data(json_data_array):
+@@ -519,11 +624,11 @@ def apply_emotion_tags_to_multi_voice_data(json_data_array):
              return True, json_data_array, "Successfully applied pre-processed emotion tags"
          else:
              return False, json_data_array, f"Line count mismatch: {len(enhanced_lines)} enhanced lines vs {len(json_data_array)} speaker-attributed lines"
@@ -1142,7 +1192,12 @@ index 1711db2..ea0c87b 100755
      except Exception as e:
          return False, json_data_array, f"Error applying emotion tags: {str(e)}"
  
-@@ -546,17 +602,17 @@ async def generate_audio_with_multiple_voices(output_format, narrator_gender, ge
+-async def generate_audio_with_multiple_voices(output_format, narrator_gender, generate_m4b_audiobook_file=False, book_path="", add_emotion_tags=False):
++async def generate_audio_with_multiple_voices(output_format, narrator_gender, generate_m4b_audiobook_file=False, book_path="", add_emotion_tags=False, kb_file=None):
+     # Path to the JSONL file containing speaker-attributed lines
+     """
+     Generate an audiobook in the specified format using multiple voices for each line
+@@ -546,17 +651,17 @@ async def generate_audio_with_multiple_voices(output_format, narrator_gender, ge
      :param book_path: The path to the book file (required for generating an M4B audiobook file)
      :param add_emotion_tags: Whether to use pre-applied emotion tags in the audiobook. Defaults to False.
      """
@@ -1164,7 +1219,7 @@ index 1711db2..ea0c87b 100755
      file_path = 'speaker_attributed_book.jsonl'
      json_data_array = []
  
-@@ -587,7 +643,7 @@ async def generate_audio_with_multiple_voices(output_format, narrator_gender, ge
+@@ -587,7 +692,7 @@ async def generate_audio_with_multiple_voices(output_format, narrator_gender, ge
              '<yawn>' in item.get('line', '') or '<gasp>' in item.get('line', '')
              for item in json_data_array
          )
@@ -1173,7 +1228,7 @@ index 1711db2..ea0c87b 100755
          if has_emotion_tags:
              yield "Removing existing emotion tags from JSONL data as per user preference"
              import re
-@@ -596,7 +652,7 @@ async def generate_audio_with_multiple_voices(output_format, narrator_gender, ge
+@@ -596,7 +701,7 @@ async def generate_audio_with_multiple_voices(output_format, narrator_gender, ge
                      # Remove emotion tags from the line
                      line_without_tags = re.sub(r'<(?:laugh|chuckle|sigh|cough|sniffle|groan|yawn|gasp)>\s*', '', item["line"])
                      item["line"] = line_without_tags
@@ -1182,7 +1237,7 @@ index 1711db2..ea0c87b 100755
      # Apply text preprocessing for Orpheus TTS to prevent repetition issues
      if TTS_MODEL.lower() == "orpheus":
          for item in json_data_array:
-@@ -610,7 +666,7 @@ async def generate_audio_with_multiple_voices(output_format, narrator_gender, ge
+@@ -610,7 +715,7 @@ async def generate_audio_with_multiple_voices(output_format, narrator_gender, ge
      # Get narrator voice using the new voice mapping system
      narrator_voice = find_voice_for_gender_score("narrator", character_gender_map, TTS_MODEL, narrator_gender)
      yield "Loaded voice mappings and selected narrator voice"
@@ -1191,7 +1246,7 @@ index 1711db2..ea0c87b 100755
      # Setup directories
      temp_audio_dir = "temp_audio"
      temp_line_audio_dir = os.path.join(temp_audio_dir, "line_segments")
-@@ -620,21 +676,17 @@ async def generate_audio_with_multiple_voices(output_format, narrator_gender, ge
+@@ -620,21 +725,17 @@ async def generate_audio_with_multiple_voices(output_format, narrator_gender, ge
      os.makedirs(temp_audio_dir, exist_ok=True)
      os.makedirs(temp_line_audio_dir, exist_ok=True)
      yield "Set up temporary directories for audio processing"
@@ -1217,7 +1272,7 @@ index 1711db2..ea0c87b 100755
      # For tracking progress with tqdm in an async context
      total_lines = len(json_data_array)
      progress_bar = tqdm(total=total_lines, unit="line", desc="Audio Generation Progress")
-@@ -654,13 +706,13 @@ async def generate_audio_with_multiple_voices(output_format, narrator_gender, ge
+@@ -654,13 +755,13 @@ async def generate_audio_with_multiple_voices(output_format, narrator_gender, ge
  
              speaker = doc["speaker"]
              speaker_voice = find_voice_for_gender_score(speaker, character_gender_map, TTS_MODEL, narrator_gender)
@@ -1234,7 +1289,7 @@ index 1711db2..ea0c87b 100755
              for part in annotated_parts:
                  text_to_speak = part["text"].strip()
  
-@@ -668,60 +720,60 @@ async def generate_audio_with_multiple_voices(output_format, narrator_gender, ge
+@@ -668,60 +769,60 @@ async def generate_audio_with_multiple_voices(output_format, narrator_gender, ge
                      continue
  
                  voice_to_speak_in = narrator_voice if part["type"] == "narration" else speaker_voice
@@ -1308,14 +1363,13 @@ index 1711db2..ea0c87b 100755
      # Create tasks and store them with their index for result collection
      tasks = []
      task_to_index = {}
-@@ -729,126 +781,44 @@ async def generate_audio_with_multiple_voices(output_format, narrator_gender, ge
+@@ -729,126 +830,41 @@ async def generate_audio_with_multiple_voices(output_format, narrator_gender, ge
          task = asyncio.create_task(process_single_line(i, doc))
          tasks.append(task)
          task_to_index[task] = i
 -    
-+
-     # Initialize results_all list
-     results_all = [None] * len(json_data_array)
+-    # Initialize results_all list
+-    results_all = [None] * len(json_data_array)
 -    
 -    # Process tasks with progress updates
 -    last_reported = -1
@@ -1430,18 +1484,18 @@ index 1711db2..ea0c87b 100755
 -async def process_audiobook_generation(voice_option, narrator_gender, output_format, book_path, add_emotion_tags=False):
 +    # Call common processing function
 +    async for progress_msg in process_audio_results_and_generate_audiobook(
-+        results_all,
++        json_data_array,
 +        task_to_index,
 +        tasks,
 +        progress_counter,
-+        total_lines,
 +        temp_line_audio_dir,
 +        temp_audio_dir,
 +        chapter_files,
 +        output_format,
 +        generate_m4b_audiobook_file,
 +        book_path,
-+        progress_bar
++        progress_bar,
++        kb_file
 +    ):
 +        yield progress_msg
 +
@@ -1465,7 +1519,18 @@ index 1711db2..ea0c87b 100755
      generate_m4b_audiobook_file = False
  
      if output_format == "M4B (Chapters & Cover)":
-@@ -867,7 +837,7 @@ async def process_audiobook_generation(voice_option, narrator_gender, output_for
+@@ -858,16 +874,16 @@ async def process_audiobook_generation(voice_option, narrator_gender, output_for
+         if voice_option == "Single Voice":
+             yield "\n🎧 Generating audiobook with a **single voice**..."
+             await asyncio.sleep(1)
+-            async for line in generate_audio_with_single_voice(output_format.lower(), narrator_gender, generate_m4b_audiobook_file, book_path, add_emotion_tags):
++            async for line in generate_audio_with_single_voice(output_format.lower(), narrator_gender, generate_m4b_audiobook_file, book_path, add_emotion_tags, kb_file):
+                 yield line
+         elif voice_option == "Multi-Voice":
+             yield "\n🎭 Generating audiobook with **multiple voices**..."
+             await asyncio.sleep(1)
+-            async for line in generate_audio_with_multiple_voices(output_format.lower(), narrator_gender, generate_m4b_audiobook_file, book_path, add_emotion_tags):
++            async for line in generate_audio_with_multiple_voices(output_format.lower(), narrator_gender, generate_m4b_audiobook_file, book_path, add_emotion_tags, kb_file):
                  yield line
  
          yield f"\n🎧 Audiobook is generated ! You can now download it in the Download section below. Click on the blue download link next to the file name."
@@ -1474,7 +1539,7 @@ index 1711db2..ea0c87b 100755
      except ValueError as e:
          # Handle validation errors specifically
          error_msg = str(e)
-@@ -910,7 +880,7 @@ async def main():
+@@ -910,7 +926,7 @@ async def main():
          if not is_calibre_installed:
              print("⚠️ Calibre is not installed. Please install it first and make sure **calibre** and **ebook-meta** commands are available in your PATH.")
              return
@@ -1483,7 +1548,7 @@ index 1711db2..ea0c87b 100755
          is_ffmpeg_installed = check_if_ffmpeg_is_installed()
  
          if not is_ffmpeg_installed:
-@@ -929,11 +899,11 @@ async def main():
+@@ -929,11 +945,11 @@ async def main():
              print(f"📂 Using book file: **{book_path}**")
  
          print("✅ Book path set. Proceeding...\n")
@@ -1497,7 +1562,7 @@ index 1711db2..ea0c87b 100755
          if not is_valid:
              print(f"❌ **Book validation failed**: {error_message}")
              print("\n💡 **Troubleshooting Tips:**")
-@@ -943,7 +913,7 @@ async def main():
+@@ -943,7 +959,7 @@ async def main():
              print("   • Make sure the book file is not corrupted")
              print("   • Ensure the book file contains extractable metadata and cover image")
              return
@@ -1506,7 +1571,7 @@ index 1711db2..ea0c87b 100755
          print(f"✅ **Book validation successful!**")
          print(f"   • Title: {metadata.get('Title', 'Unknown')}")
          print(f"   • Author: {metadata.get('Author(s)', 'Unknown')}")
-@@ -959,7 +929,7 @@ async def main():
+@@ -959,7 +975,7 @@ async def main():
          if(output_format not in ["aac", "m4a", "mp3", "wav", "opus", "flac", "pcm"]):
              print("\n⚠️ Invalid output format! Please choose from the give options")
              return
@@ -1515,7 +1580,7 @@ index 1711db2..ea0c87b 100755
      # Prompt user for narrator's gender selection
      print("\n🎙️ **Audiobook Narrator Voice Selection**")
      narrator_gender = input("🔹 Enter **male** if you want the book to be read in a male voice or **female** if you want the book to be read in a female voice: ").strip()
-@@ -975,7 +945,7 @@ async def main():
+@@ -975,7 +991,7 @@ async def main():
          print("🔹 Emotion tags add natural expressions like laughter, sighs, gasps to your audiobook")
          print("🔹 Available tags: <laugh>, <chuckle>, <sigh>, <cough>, <sniffle>, <groan>, <yawn>, <gasp>")
          emotion_tags_option = input("🔹 Do you want to use emotion tags in the audiobook? Enter **yes** or **no**: ").strip().lower()
@@ -1525,7 +1590,7 @@ index 1711db2..ea0c87b 100755
              add_emotion_tags = True
              print("✅ Emotion tags will be used in the audiobook!")
 diff --git a/utils/audiobook_utils.py b/utils/audiobook_utils.py
-index df8ac0b..5c935e2 100644
+index df8ac0b..232f3b8 100644
 --- a/utils/audiobook_utils.py
 +++ b/utils/audiobook_utils.py
 @@ -16,6 +16,8 @@ You should have received a copy of the GNU General Public License
@@ -1537,12 +1602,606 @@ index df8ac0b..5c935e2 100644
  import subprocess
  import re
  import os
-@@ -655,53 +657,150 @@ def add_silence_to_audio_file_by_reencoding_using_ffmpeg(temp_dir, input_file_na
+@@ -36,20 +38,20 @@ def escape_metadata(value):
+ def validate_file_path(file_path):
+     """
+     Validates that a file path is safe using allowlist approach.
+-    
++
+     Args:
+         file_path (str): The file path to validate
+-        
++
+     Returns:
+         bool: True if path is safe, False otherwise
+     """
+     if not file_path or not isinstance(file_path, str):
+         return False
+-    
++
+     # Use allowlist-based validation
+     if not validate_file_path_allowlist(file_path):
+         return False
+-        
++
+     # Check if file exists and is readable
+     try:
+         return os.path.exists(file_path) and os.access(file_path, os.R_OK)
+@@ -69,14 +71,14 @@ def get_ebook_metadata_with_cover(book_path):
+     # Validate file path
+     if not validate_file_path(book_path):
+         raise ValueError(f"Invalid or unsafe book path: {book_path}")
+-        
++
+     # Get ebook-meta binary path securely
+     allowed_commands = ['which', 'ebook-meta']
+     ebook_meta_bin_result = run_shell_command_secure("which ebook-meta", allowed_commands)
+-    
++
+     if not ebook_meta_bin_result or not ebook_meta_bin_result.stdout.strip():
+         raise RuntimeError("ebook-meta command not found")
+-        
++
+     ebook_meta_bin_path = ebook_meta_bin_result.stdout.strip()
+ 
+     # Build secure command as list
+@@ -85,7 +87,7 @@ def get_ebook_metadata_with_cover(book_path):
+     # Run the command securely using our centralized function
+     allowed_ebook_commands = ['ebook-meta']
+     result = run_shell_command_secure(command, allowed_ebook_commands)
+-    
++
+     if not result:
+         raise RuntimeError("Failed to extract metadata")
+ 
+@@ -95,9 +97,9 @@ def get_ebook_metadata_with_cover(book_path):
+         if ": " in line:
+             key, value = line.split(": ", 1)
+             metadata[key.strip()] = value.strip()
+-    
++
+     return metadata
+-    
++
+ def get_audio_duration_using_ffprobe(file_path):
+     """
+     Returns the duration of an audio file in milliseconds using ffprobe.
+@@ -111,7 +113,7 @@ def get_audio_duration_using_ffprobe(file_path):
+     # Validate file path
+     if not validate_file_path(file_path):
+         raise ValueError(f"Invalid or unsafe file path: {file_path}")
+-        
++
+     # Construct the command to execute
+     cmd = [
+         "ffprobe",  # Use ffprobe to get the duration
+@@ -122,14 +124,14 @@ def get_audio_duration_using_ffprobe(file_path):
+         "default=noprint_wrappers=1:nokey=1",  # Print the duration without any additional information
+         file_path  # Specify the file to analyze
+     ]
+-    
++
+     # Run the command securely
+     allowed_commands = ['ffprobe']
+     result = run_shell_command_secure(cmd, allowed_commands)
+-    
++
+     if not result or result.returncode != 0:
+         raise RuntimeError(f"Failed to get audio duration: {result.stderr if result else 'Unknown error'}")
+-        
++
+     # Convert the output to an integer (in milliseconds) and return it
+     return int(float(result.stdout.strip()) * 1000)
+ 
+@@ -138,17 +140,17 @@ def get_audio_duration_using_raw_ffmpeg(file_path):
+     # Validate file path
+     if not validate_file_path(file_path):
+         raise ValueError(f"Invalid or unsafe file path: {file_path}")
+-        
++
+     cmd = ["ffmpeg", "-y", "-i", file_path, "-f", "null", "-"]
+-    
++
+     try:
+         # Run the command securely
+         allowed_commands = ['ffmpeg']
+         result = run_shell_command_secure(cmd, allowed_commands)
+-        
++
+         if not result:
+             return None
+-            
++
+         stderr_output = result.stderr
+ 
+         # Look for the final timestamp (time=xx:xx:xx.xx) in FFmpeg output
+@@ -180,14 +182,14 @@ def generate_chapters_file(chapter_files, output_file="chapters.txt"):
+         for chapter in chapter_files:
+             duration = get_audio_duration_using_ffprobe(os.path.join("temp_audio", chapter))
+             end_time = start_time + duration
+-            
++
+             # Write the chapter metadata to the file
+             f.write("[CHAPTER]\n")
+             f.write("TIMEBASE=1/1000\n")
+             f.write(f"START={start_time}\n")
+             f.write(f"END={end_time}\n")
+             f.write(f"title={os.path.splitext(chapter)[0]}\n\n")  # Use filename as chapter title
+-            
++
+             # Update the start time for the next chapter
+             start_time = end_time
+ 
+@@ -195,24 +197,24 @@ def create_m4a_file_from_raw_aac_file(input_file_path, output_file_path):
+     # Validate file paths
+     if not validate_file_path(input_file_path):
+         raise ValueError(f"Invalid input file path: {input_file_path}")
+-        
++
+     cmd = ["ffmpeg", "-y", "-i", input_file_path, "-c", "copy", output_file_path]
+-    
++
+     try:
+         # Run the command securely
+         allowed_commands = ['ffmpeg']
+         result = run_shell_command_secure(cmd, allowed_commands)
+-        
++
+         if not result or result.returncode != 0:
+             error_msg = result.stderr if result else "Unknown error"
+             print(f"Error creating M4A from AAC: {error_msg}")
+             return None
+-            
++
+     except Exception as e:
+         print(f"Error: {e}")
+         traceback.print_exc()
+         return None
+-    
++
+ def create_m4a_file_from_wav_file(input_file_path, output_file_path):
+     """
+     Convert WAV to M4A using AAC encoding with intelligent quality settings.
+@@ -221,28 +223,28 @@ def create_m4a_file_from_wav_file(input_file_path, output_file_path):
+     # Validate file paths
+     if not validate_file_path(input_file_path):
+         raise ValueError(f"Invalid input file path: {input_file_path}")
+-        
++
+     # Get properties of input file to preserve them
+     audio_props = get_audio_properties(input_file_path)
+     sample_rate = audio_props["sample_rate"]
+-    
++
+     cmd = [
+-        "ffmpeg", "-y", "-i", input_file_path, 
++        "ffmpeg", "-y", "-i", input_file_path,
+         "-c:a", "aac", "-b:a", "256k",  # High quality AAC
+         "-ar", str(sample_rate),  # Preserve original sample rate
+         output_file_path
+     ]
+-    
++
+     try:
+         # Run the command securely
+         allowed_commands = ['ffmpeg']
+         result = run_shell_command_secure(cmd, allowed_commands)
+-        
++
+         if not result or result.returncode != 0:
+             error_msg = result.stderr if result else "Unknown error"
+             print(f"Error creating M4A from WAV: {error_msg}")
+             return None
+-            
++
+     except Exception as e:
+         print(f"Error: {e}")
+         traceback.print_exc()
+@@ -255,24 +257,24 @@ def create_aac_file_from_m4a_file(input_file_path, output_file_path):
+     # Validate file paths
+     if not validate_file_path(input_file_path):
+         raise ValueError(f"Invalid input file path: {input_file_path}")
+-        
++
+     cmd = ["ffmpeg", "-y", "-i", input_file_path, "-c", "copy", output_file_path]
+-    
++
+     try:
+         # Run the command securely
+         allowed_commands = ['ffmpeg']
+         result = run_shell_command_secure(cmd, allowed_commands)
+-        
++
+         if not result or result.returncode != 0:
+             error_msg = result.stderr if result else "Unknown error"
+             print(f"Error creating AAC from M4A: {error_msg}")
+             return None
+-            
++
+     except Exception as e:
+         print(f"Error: {e}")
+         traceback.print_exc()
+         return None
+-    
++
+ def create_mp3_file_from_m4a_file(input_file_path, output_file_path):
+     """
+     Convert M4A to MP3 preserving original sample rate and quality.
+@@ -281,37 +283,37 @@ def create_mp3_file_from_m4a_file(input_file_path, output_file_path):
+     # Validate file paths
+     if not validate_file_path(input_file_path):
+         raise ValueError(f"Invalid input file path: {input_file_path}")
+-        
++
+     # Get properties of input file
+     audio_props = get_audio_properties(input_file_path)
+     sample_rate = audio_props["sample_rate"]
+-    
++
+     # Choose appropriate bitrate based on sample rate and content type (speech)
+     bitrate = "192k" if sample_rate >= 44100 else "160k"
+-    
++
+     cmd = [
+-        "ffmpeg", "-y", "-i", input_file_path, 
++        "ffmpeg", "-y", "-i", input_file_path,
+         "-c:a", "libmp3lame", "-b:a", bitrate,
+         "-ar", str(sample_rate),  # Preserve original sample rate
+         "-q:a", "2",  # High quality VBR setting
+         output_file_path
+     ]
+-    
++
+     try:
+         # Run the command securely
+         allowed_commands = ['ffmpeg']
+         result = run_shell_command_secure(cmd, allowed_commands)
+-        
++
+         if not result or result.returncode != 0:
+             error_msg = result.stderr if result else "Unknown error"
+             print(f"Error creating MP3 from M4A: {error_msg}")
+             return None
+-            
++
+     except Exception as e:
+         print(f"Error: {e}")
+         traceback.print_exc()
+         return None
+-    
++
+ def create_wav_file_from_m4a_file(input_file_path, output_file_path):
+     """
+     Convert M4A to WAV preserving original sample rate and channel layout.
+@@ -320,34 +322,34 @@ def create_wav_file_from_m4a_file(input_file_path, output_file_path):
+     # Validate file paths
+     if not validate_file_path(input_file_path):
+         raise ValueError(f"Invalid input file path: {input_file_path}")
+-        
++
+     # Get properties of input file to preserve them
+     audio_props = get_audio_properties(input_file_path)
+     sample_rate = audio_props["sample_rate"]
+-    
++
+     cmd = [
+-        "ffmpeg", "-y", "-i", input_file_path, 
++        "ffmpeg", "-y", "-i", input_file_path,
+         "-c:a", "pcm_s16le",  # 16-bit PCM (standard WAV)
+         "-ar", str(sample_rate),  # Preserve original sample rate
+         # Note: Not specifying channel count to preserve original layout
+         output_file_path
+     ]
+-    
++
+     try:
+         # Run the command securely
+         allowed_commands = ['ffmpeg']
+         result = run_shell_command_secure(cmd, allowed_commands)
+-        
++
+         if not result or result.returncode != 0:
+             error_msg = result.stderr if result else "Unknown error"
+             print(f"Error creating WAV from M4A: {error_msg}")
+             return None
+-            
++
+     except Exception as e:
+         print(f"Error: {e}")
+         traceback.print_exc()
+         return None
+-    
++
+ def create_opus_file_from_m4a_file(input_file_path, output_file_path):
+     """
+     Convert M4A to Opus with intelligent quality settings.
+@@ -356,11 +358,11 @@ def create_opus_file_from_m4a_file(input_file_path, output_file_path):
+     # Validate file paths
+     if not validate_file_path(input_file_path):
+         raise ValueError(f"Invalid input file path: {input_file_path}")
+-        
++
+     # Get properties of input file
+     audio_props = get_audio_properties(input_file_path)
+     original_sample_rate = audio_props["sample_rate"]
+-    
++
+     # Opus supported sample rates: 8000, 12000, 16000, 24000, 48000
+     # Map input sample rates to closest supported Opus rate
+     if original_sample_rate <= 10000:
+@@ -378,29 +380,29 @@ def create_opus_file_from_m4a_file(input_file_path, output_file_path):
+     else:
+         opus_sample_rate = 48000  # For 44100Hz and higher
+         bitrate = "160k"
+-    
++
+     cmd = [
+-        "ffmpeg", "-y", "-i", input_file_path, 
++        "ffmpeg", "-y", "-i", input_file_path,
+         "-c:a", "libopus", "-b:a", bitrate,
+         "-ar", str(opus_sample_rate),  # Use compatible Opus sample rate
+         output_file_path
+     ]
+-    
++
+     try:
+         # Run the command securely
+         allowed_commands = ['ffmpeg']
+         result = run_shell_command_secure(cmd, allowed_commands)
+-        
++
+         if not result or result.returncode != 0:
+             error_msg = result.stderr if result else "Unknown error"
+             print(f"Error creating Opus from M4A: {error_msg}")
+             return None
+-            
++
+     except Exception as e:
+         print(f"Error: {e}")
+         traceback.print_exc()
+         return None
+-    
++
+ def create_flac_file_from_m4a_file(input_file_path, output_file_path):
+     """
+     Convert M4A to FLAC (lossless compression).
+@@ -409,34 +411,34 @@ def create_flac_file_from_m4a_file(input_file_path, output_file_path):
+     # Validate file paths
+     if not validate_file_path(input_file_path):
+         raise ValueError(f"Invalid input file path: {input_file_path}")
+-        
++
+     # Get properties of input file to preserve them
+     audio_props = get_audio_properties(input_file_path)
+     sample_rate = audio_props["sample_rate"]
+-    
++
+     cmd = [
+-        "ffmpeg", "-y", "-i", input_file_path, 
++        "ffmpeg", "-y", "-i", input_file_path,
+         "-c:a", "flac",
+         "-ar", str(sample_rate),  # Preserve original sample rate
+         # FLAC is lossless so we preserve everything
+         output_file_path
+     ]
+-    
++
+     try:
+         # Run the command securely
+         allowed_commands = ['ffmpeg']
+         result = run_shell_command_secure(cmd, allowed_commands)
+-        
++
+         if not result or result.returncode != 0:
+             error_msg = result.stderr if result else "Unknown error"
+             print(f"Error creating FLAC from M4A: {error_msg}")
+             return None
+-            
++
+     except Exception as e:
+         print(f"Error: {e}")
+         traceback.print_exc()
+         return None
+-    
++
+ def create_pcm_file_from_m4a_file(input_file_path, output_file_path):
+     """
+     Convert M4A to raw PCM preserving original audio properties.
+@@ -445,36 +447,36 @@ def create_pcm_file_from_m4a_file(input_file_path, output_file_path):
+     # Validate file paths
+     if not validate_file_path(input_file_path):
+         raise ValueError(f"Invalid input file path: {input_file_path}")
+-        
++
+     # Get properties of input file to preserve them
+     audio_props = get_audio_properties(input_file_path)
+     sample_rate = audio_props["sample_rate"]
+     channels = audio_props["channels"]
+-    
++
+     cmd = [
+-        "ffmpeg", "-y", "-i", input_file_path, 
++        "ffmpeg", "-y", "-i", input_file_path,
+         "-f", "s16le",  # 16-bit little-endian format
+-        "-acodec", "pcm_s16le", 
++        "-acodec", "pcm_s16le",
+         "-ar", str(sample_rate),  # Preserve original sample rate
+         "-ac", str(channels),  # Preserve original channel count
+         output_file_path
+     ]
+-    
++
+     try:
+         # Run the command securely
+         allowed_commands = ['ffmpeg']
+         result = run_shell_command_secure(cmd, allowed_commands)
+-        
++
+         if not result or result.returncode != 0:
+             error_msg = result.stderr if result else "Unknown error"
+             print(f"Error creating PCM from M4A: {error_msg}")
+             return None
+-            
++
+     except Exception as e:
+         print(f"Error: {e}")
+         traceback.print_exc()
+         return None
+-    
++
+ def convert_audio_file_formats(input_format, output_format, folder_path, file_name):
+         input_path = os.path.join(folder_path, f"{file_name}.{input_format}")
+         output_path = os.path.join(folder_path, f"{file_name}.{output_format}")
+@@ -498,7 +500,7 @@ def convert_audio_file_formats(input_format, output_format, folder_path, file_na
+             create_flac_file_from_m4a_file(input_path, output_path)
+         elif output_format == "pcm":
+             create_pcm_file_from_m4a_file(input_path, output_path)
+-    
++
+ def merge_chapters_to_m4b(book_path, chapter_files):
+     """
+     Uses ffmpeg to merge all chapter files into an M4B audiobook.
+@@ -512,9 +514,9 @@ def merge_chapters_to_m4b(book_path, chapter_files):
+     # Validate inputs
+     if not validate_file_path(book_path):
+         raise ValueError(f"Invalid or unsafe book path: {book_path}")
+-        
++
+     file_list_path = "chapter_list.txt"
+-    
++
+     with open(file_list_path, "w", encoding='utf-8') as f:
+         for chapter in chapter_files:
+             # Validate each chapter file path
+@@ -530,7 +532,7 @@ def merge_chapters_to_m4b(book_path, chapter_files):
+     languages = escape_metadata(metadata.get("Languages", ""))
+     published_date = escape_metadata(metadata.get("Published", ""))
+     comments = escape_metadata(metadata.get("Comments", ""))
+-    
++
+     # Generate chapter metadata
+     generate_chapters_file(chapter_files, "chapters.txt")
+ 
+@@ -544,17 +546,17 @@ def merge_chapters_to_m4b(book_path, chapter_files):
+ 
+     # Build secure FFmpeg command as list
+     ffmpeg_cmd = [
+-        "ffmpeg", "-y", 
++        "ffmpeg", "-y",
+         "-f", "concat", "-safe", "0", "-i", file_list_path,
+-        "-i", cover_image, 
++        "-i", cover_image,
+         "-i", "chapters.txt",
+-        "-c", "copy", 
+-        "-map", "0", 
+-        "-map", "1", 
+-        "-disposition:v:0", "attached_pic", 
++        "-c", "copy",
++        "-map", "0",
++        "-map", "1",
++        "-disposition:v:0", "attached_pic",
+         "-map_metadata", "2"
+     ]
+-    
++
+     # Add metadata safely
+     if title:
+         ffmpeg_cmd.extend(["-metadata", f"title={title}"])
+@@ -571,17 +573,17 @@ def merge_chapters_to_m4b(book_path, chapter_files):
+         ffmpeg_cmd.extend(["-metadata", f"date={published_date}"])
+     if comments:
+         ffmpeg_cmd.extend(["-metadata", f"description={comments}"])
+-        
++
+     ffmpeg_cmd.append(output_m4b)
+-    
++
+     # Use centralized secure command execution
+     allowed_ffmpeg_commands = ['ffmpeg']
+     result = run_shell_command_secure(ffmpeg_cmd, allowed_ffmpeg_commands)
+-    
++
+     if not result or result.returncode != 0:
+         error_msg = result.stderr if result else "Unknown error"
+         raise RuntimeError(f"FFmpeg failed: {error_msg}")
+-        
++
+     print(f"Audiobook created: {output_m4b}")
+ 
+ def add_silence_to_audio_file_by_appending_pre_generated_silence(temp_dir, input_file_name):
+@@ -602,31 +604,31 @@ def add_silence_to_audio_file_by_reencoding_using_ffmpeg(temp_dir, input_file_na
+     # Validate inputs
+     if not validate_file_path(temp_dir) or not input_file_name:
+         raise ValueError("Invalid temporary directory or file name")
+-        
++
+     # Validate pause_duration format (basic check)
+     if not re.match(r'^\d{2}:\d{2}:\d{2}$', pause_duration):
+         raise ValueError("Invalid pause duration format. Expected HH:MM:SS")
+-    
++
+     silence_path = os.path.join(temp_dir, "silence.aac")
+     input_path = os.path.join(temp_dir, input_file_name)
+-    
++
+     # Validate file paths
+     if not validate_file_path(input_path):
+         raise ValueError(f"Invalid input file path: {input_path}")
+-    
++
+     # Generate a silence file with the specified duration - secure command
+     generate_silence_command = [
+-        "ffmpeg", "-y", 
+-        "-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono", 
+-        "-t", pause_duration, 
+-        "-c:a", "aac", 
++        "ffmpeg", "-y",
++        "-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono",
++        "-t", pause_duration,
++        "-c:a", "aac",
+         silence_path
+     ]
+-    
++
+     # Use centralized secure command execution
+     allowed_ffmpeg_commands = ['ffmpeg']
+     result = run_shell_command_secure(generate_silence_command, allowed_ffmpeg_commands)
+-    
++
+     if not result or result.returncode != 0:
+         error_msg = result.stderr if result else "Unknown error"
+         raise RuntimeError(f"Failed to generate silence: {error_msg}")
+@@ -634,17 +636,17 @@ def add_silence_to_audio_file_by_reencoding_using_ffmpeg(temp_dir, input_file_na
+     # Add the silence to the end of the audio file - secure command
+     temp_output_path = os.path.join(temp_dir, "temp_audio_file.aac")
+     add_silence_command = [
+-        "ffmpeg", "-y", 
+-        "-i", input_path, 
+-        "-i", silence_path, 
+-        "-filter_complex", "[0:a][1:a]concat=n=2:v=0:a=1[out]", 
+-        "-map", "[out]", 
++        "ffmpeg", "-y",
++        "-i", input_path,
++        "-i", silence_path,
++        "-filter_complex", "[0:a][1:a]concat=n=2:v=0:a=1[out]",
++        "-map", "[out]",
+         temp_output_path
+     ]
+-    
++
+     # Use centralized secure command execution
+     result = run_shell_command_secure(add_silence_command, allowed_ffmpeg_commands)
+-    
++
+     if not result or result.returncode != 0:
+         error_msg = result.stderr if result else "Unknown error"
+         raise RuntimeError(f"Failed to add silence: {error_msg}")
+@@ -655,59 +657,170 @@ def add_silence_to_audio_file_by_reencoding_using_ffmpeg(temp_dir, input_file_na
      except OSError as e:
          raise RuntimeError(f"Failed to rename file: {e}")
  
 -def merge_chapters_to_standard_audio_file(chapter_files):
-+def generate_line_timings_json(line_timings):
++def generate_line_timings_json(line_timings, entities):
      """
 -    Uses ffmpeg to merge all chapter files into a standard M4A audio file).
 +    Convert line timing data to a compact JSON string suitable for embedding
@@ -1562,21 +2221,24 @@ index df8ac0b..5c935e2 100644
 +        text = text.replace("#", "\\#")
 +        return text
 +
-+    line_data = [
-+        {
-+            "startTime": round(line["start"], 3),
-+            "endTime": round(line["end"], 3),
-+            "text": line["text"]
-+        }
-+        for line in line_timings
-+    ]
++    output = {
++        "entities": entities,
++        "lines": [
++            {
++                "startTime": round(line["start"], 3),
++                "endTime": round(line["end"], 3),
++                "text": line["text"]
++            }
++            for line in line_timings
++        ]
++    }
 +
-+    json_comment = json.dumps(line_data, ensure_ascii=False)
++    json_comment = json.dumps(output, ensure_ascii=False)
 +    json_comment = escape_ffmetadata_chars(json_comment)
 +
 +    return json_comment
 +
-+def merge_chapters_to_standard_audio_file(chapter_files, line_timings=None):
++def merge_chapters_to_standard_audio_file(chapter_files, line_timings=None, chapter_to_entities=None):
 +    """
 +    Merge chapter audio files into a standard M4A with jumpable chapters.
 +    Converts WAV/PCM/AAC chapters to AAC/M4A before concatenation.
@@ -1654,14 +2316,9 @@ index df8ac0b..5c935e2 100644
 +    # 4. Create chapter metadata
 +    metadata_file = os.path.join("generated_audiobooks/", "metadata.txt")
 +    with open(metadata_file, "w", encoding="utf-8") as f:
-+        f.write(";FFMETADATA1\n")
-+
-+        json_comment = generate_line_timings_json(line_timings)
-+        if json_comment:
-+            print("Embedding line timing information as JSON in metadata comment")
-+            f.write(f"comment={json_comment}\n\n")
-+
 +        start_time = 0
++        chapter_metadata = []
++        output_entities = []
 +        for chapter, path in zip(chapter_files, converted_files):
 +            # Get duration in seconds
 +            result = subprocess.run(
@@ -1674,9 +2331,25 @@ index df8ac0b..5c935e2 100644
 +
 +            # Use original filename (without extension) as chapter title
 +            chapter_title = os.path.splitext(os.path.basename(chapter))[0]
-+            f.write(f"[CHAPTER]\nTIMEBASE=1/1000\nSTART={start_time}\nEND={end_time}\ntitle={chapter_title}\n")
++            if chapter_to_entities:
++                entities = chapter_to_entities[chapter_title]
++                output_entities.append({
++                    'timesatmp': end_time,
++                    "snapshot": entities
++                })
++            chapter_metadata.append(f"[CHAPTER]\nTIMEBASE=1/1000\nSTART={start_time}\nEND={end_time}\ntitle={chapter_title}\n")
 +
 +            start_time = end_time
++
++        f.write(";FFMETADATA1\n")
++
++        json_comment = generate_line_timings_json(line_timings, output_entities)
++        if json_comment:
++            print("Embedding line timing information as JSON in metadata comment")
++            f.write(f"comment={json_comment}\n\n")
++
++        for line in chapter_metadata:
++            f.write(line)
 +
 +    # 5. Attach metadata
 +    output_file = "generated_audiobooks/audiobook.m4a"
@@ -1723,9 +2396,21 @@ index df8ac0b..5c935e2 100644
 +def assemble_chapter_with_ffmpeg(chapter_file, line_indices, temp_line_audio_dir, temp_audio_dir, line_text, timings = [], silence_duration_ms=0):
      """
      Memory-efficient chapter assembly using FFmpeg instead of PyDub.
-     
-@@ -719,7 +818,10 @@ def assemble_chapter_with_ffmpeg(chapter_file, line_indices, temp_line_audio_dir
-     
+-    
++
+     This function concatenates line audio files into a chapter using FFmpeg's concat filter,
+     which is much more memory-efficient than loading all audio into PyDub AudioSegments.
+-    
++
+     Args:
+         chapter_file (str): The name of the chapter file to create
+         line_indices (list): List of line indices that belong to this chapter
+@@ -716,10 +829,13 @@ def assemble_chapter_with_ffmpeg(chapter_file, line_indices, temp_line_audio_dir
+     """
+     if not line_indices:
+         return
+-    
++
      # Create a temporary file list for FFmpeg concat
      file_list_path = os.path.join(temp_audio_dir, f"chapter_list_{chapter_file}.txt")
 -    
@@ -1736,7 +2421,7 @@ index df8ac0b..5c935e2 100644
      try:
          with open(file_list_path, "w", encoding='utf-8') as f:
              for line_index in sorted(line_indices):
-@@ -727,7 +829,17 @@ def assemble_chapter_with_ffmpeg(chapter_file, line_indices, temp_line_audio_dir
+@@ -727,24 +843,34 @@ def assemble_chapter_with_ffmpeg(chapter_file, line_indices, temp_line_audio_dir
                  # Use absolute path to avoid issues with FFmpeg concat
                  abs_line_path = os.path.abspath(line_path)
                  f.write(f"file '{abs_line_path}'\n")
@@ -1754,7 +2439,230 @@ index df8ac0b..5c935e2 100644
 +
          # Create the full chapter file path
          chapter_path = os.path.join(temp_audio_dir, chapter_file)
-         
+-        
++
+         # Use FFmpeg to concatenate the audio files
+         ffmpeg_cmd = [
+-            "ffmpeg", "-y", "-f", "concat", "-safe", "0", 
++            "ffmpeg", "-y", "-f", "concat", "-safe", "0",
+             "-i", file_list_path, "-c", "copy", chapter_path
+         ]
+-        
++
+         # Use centralized secure command execution
+         allowed_commands = ['ffmpeg']
+         result = run_shell_command_secure(ffmpeg_cmd, allowed_commands)
+-        
++
+         if not result or result.returncode != 0:
+             error_msg = result.stderr if result else "Unknown error"
+             raise RuntimeError(f"FFmpeg chapter assembly failed: {error_msg}")
+-        
++
+     finally:
+         # Clean up the temporary file list
+         if os.path.exists(file_list_path):
+@@ -753,17 +879,17 @@ def assemble_chapter_with_ffmpeg(chapter_file, line_indices, temp_line_audio_dir
+ def get_audio_properties(file_path):
+     """
+     Extract audio properties from an audio file using ffprobe.
+-    
++
+     This function analyzes an audio file and returns its sample rate, channel count,
+     and channel layout, which is useful for ensuring compatibility when processing audio.
+-    
++
+     Args:
+         file_path (str): Path to the audio file to analyze
+-        
++
+     Returns:
+         dict: Dictionary containing:
+             - sample_rate (int): Sample rate in Hz
+-            - channels (int): Number of audio channels  
++            - channels (int): Number of audio channels
+             - channel_layout (str): Channel layout ("mono" or "stereo")
+             - duration (float): Duration in seconds (bonus info)
+     """
+@@ -777,33 +903,33 @@ def get_audio_properties(file_path):
+             "channel_layout": "mono",
+             "duration": 0.0
+         }
+-    
++
+     # Get audio properties of the file
+     probe_cmd = [
+-        "ffprobe", "-v", "quiet", "-print_format", "json", 
++        "ffprobe", "-v", "quiet", "-print_format", "json",
+         "-show_streams", "-show_format", file_path
+     ]
+-    
++
+     try:
+         # Use centralized secure command execution
+         allowed_commands = ['ffprobe']
+         probe_result = run_shell_command_secure(probe_cmd, allowed_commands)
+-        
++
+         if not probe_result or probe_result.returncode != 0:
+             raise ValueError("ffprobe failed")
+-            
++
+         probe_data = json.loads(probe_result.stdout)
+-        
++
+         # Extract audio stream properties
+         audio_stream = next((s for s in probe_data["streams"] if s["codec_type"] == "audio"), None)
+         if audio_stream:
+             sample_rate = int(audio_stream["sample_rate"])
+             channels = int(audio_stream["channels"])
+             channel_layout = "mono" if channels == 1 else "stereo"
+-            
++
+             # Get duration from format info
+             duration = float(probe_data["format"]["duration"]) if "format" in probe_data and "duration" in probe_data["format"] else 0.0
+-            
++
+             return {
+                 "sample_rate": sample_rate,
+                 "channels": channels,
+@@ -818,7 +944,7 @@ def get_audio_properties(file_path):
+                 "channel_layout": "mono",
+                 "duration": 0.0
+             }
+-            
++
+     except (ValueError, json.JSONDecodeError, KeyError):
+         # Fallback to common values if probe fails
+         return {
+@@ -831,10 +957,10 @@ def get_audio_properties(file_path):
+ def add_silence_to_chapter_with_ffmpeg(chapter_path, silence_duration_ms=1000):
+     """
+     Memory-efficient silence addition using FFmpeg instead of PyDub.
+-    
++
+     This function adds silence to the end of a chapter file using FFmpeg,
+     which is much more memory-efficient than loading the entire chapter into PyDub.
+-    
++
+     Args:
+         chapter_path (str): Path to the chapter audio file
+         silence_duration_ms (int): Duration of silence to add in milliseconds (default: 1000ms = 1 second)
+@@ -842,51 +968,51 @@ def add_silence_to_chapter_with_ffmpeg(chapter_path, silence_duration_ms=1000):
+     # Validate chapter path
+     if not validate_file_path(chapter_path):
+         raise ValueError(f"Invalid chapter path: {chapter_path}")
+-        
++
+     # Get audio properties of the chapter file
+     audio_props = get_audio_properties(chapter_path)
+     sample_rate = audio_props["sample_rate"]
+     channel_layout = audio_props["channel_layout"]
+-    
++
+     # Use sample-rate specific silence file
+     silence_file_path = f"static_files/silence_{sample_rate}hz.wav"
+-    
++
+     # Check if silence file exists, if not create it
+     if not os.path.exists(silence_file_path):
+         generate_silence_file(silence_file_path, silence_duration_ms, sample_rate, channel_layout)
+-    
++
+     # Create temporary output path with proper extension
+     temp_output_path = f"{chapter_path}.temp.wav"
+-    
++
+     # Create temporary concat list file
+     concat_list_path = f"{chapter_path}.concat_list.txt"
+-    
++
+     try:
+         # Create a concat list file for FFmpeg
+         with open(concat_list_path, "w", encoding='utf-8') as f:
+             f.write(f"file '{os.path.abspath(chapter_path)}'\n")
+             f.write(f"file '{os.path.abspath(silence_file_path)}'\n")
+-        
++
+         # Use FFmpeg concat demuxer to join the files with lossless copy
+         ffmpeg_cmd = [
+-            "ffmpeg", "-y", 
++            "ffmpeg", "-y",
+             "-f", "concat", "-safe", "0",
+             "-i", concat_list_path,
+             "-c", "copy",  # LOSSLESS: Copy without re-encoding
+             temp_output_path
+         ]
+-        
++
+         # Use centralized secure command execution
+         allowed_commands = ['ffmpeg']
+         result = run_shell_command_secure(ffmpeg_cmd, allowed_commands)
+-        
++
+         if not result or result.returncode != 0:
+             error_msg = result.stderr if result else "Unknown error"
+             raise RuntimeError(f"FFmpeg silence addition failed: {error_msg}")
+-        
++
+         # Replace the original file with the new one
+         os.replace(temp_output_path, chapter_path)
+-        
++
+     except Exception as e:
+         # Clean up temp files if FFmpeg failed
+         if os.path.exists(temp_output_path):
+@@ -901,10 +1027,10 @@ def add_silence_to_chapter_with_ffmpeg(chapter_path, silence_duration_ms=1000):
+ def generate_silence_file(output_path, duration_ms=1000, sample_rate=44100, channel_layout="mono"):
+     """
+     Generate a silence audio file using FFmpeg with specific audio properties.
+-    
++
+     This function creates a WAV file containing silence that matches the sample rate
+     and channel layout of the TTS-generated audio for perfect compatibility.
+-    
++
+     Args:
+         output_path (str): Path where the silence file will be saved
+         duration_ms (int): Duration of silence in milliseconds (default: 1000ms = 1 second)
+@@ -913,30 +1039,30 @@ def generate_silence_file(output_path, duration_ms=1000, sample_rate=44100, chan
+     """
+     # Ensure the directory exists
+     os.makedirs(os.path.dirname(output_path), exist_ok=True)
+-    
++
+     # Convert milliseconds to seconds for FFmpeg
+     duration_seconds = duration_ms / 1000.0
+-    
++
+     # Generate silence using FFmpeg with matching properties
+     ffmpeg_cmd = [
+-        "ffmpeg", "-y", 
+-        "-f", "lavfi", 
++        "ffmpeg", "-y",
++        "-f", "lavfi",
+         "-i", f"anullsrc=r={sample_rate}:cl={channel_layout}",
+         "-t", str(duration_seconds),
+         "-c:a", "pcm_s16le",  # WAV format
+         "-ar", str(sample_rate),  # Match sample rate
+         output_path
+     ]
+-    
++
+     try:
+         # Use centralized secure command execution
+         allowed_commands = ['ffmpeg']
+         result = run_shell_command_secure(ffmpeg_cmd, allowed_commands)
+-        
++
+         if not result or result.returncode != 0:
+             error_msg = result.stderr if result else "Unknown error"
+             raise RuntimeError(f"Failed to generate silence file: {error_msg}")
+-            
++
+         print(f"Generated silence file: {output_path} ({duration_ms}ms, {sample_rate}Hz, {channel_layout})")
+     except Exception as e:
+         print(f"Error generating silence file: {e}")
 -- 
 2.36.1.windows.1
 
