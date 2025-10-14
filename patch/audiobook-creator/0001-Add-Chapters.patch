@@ -1,16 +1,16 @@
-From 30a1423b9894ee1cdac0074faf80d81e0270e0ff Mon Sep 17 00:00:00 2001
+From d7fdc9894d101b27f672b0287ef07f3c0717dbdf Mon Sep 17 00:00:00 2001
 From: Raghav <ragha.nv@gmail.com>
 Date: Sat, 11 Oct 2025 16:27:17 -0700
 Subject: [PATCH] Add chapters
 
 ---
- app.py                   | 195 +++++++------
+ app.py                   | 250 +++++++++-------
  generate_audiobook.py    | 606 +++++++++++++++++++--------------------
  utils/audiobook_utils.py | 188 +++++++++---
- 3 files changed, 553 insertions(+), 436 deletions(-)
+ 3 files changed, 588 insertions(+), 456 deletions(-)
 
 diff --git a/app.py b/app.py
-index 8035285..5c388cf 100644
+index 8035285..a442539 100644
 --- a/app.py
 +++ b/app.py
 @@ -19,6 +19,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
@@ -101,7 +101,7 @@ index 8035285..5c388cf 100644
          # Final yield with success notification
          yield gr.Info("Emotion tags added successfully! You can now generate the audiobook.", duration=5)
          yield last_output
-@@ -141,7 +161,7 @@ async def add_emotion_tags_wrapper():
+@@ -141,61 +161,62 @@ async def add_emotion_tags_wrapper():
          yield None
          return
  
@@ -109,37 +109,49 @@ index 8035285..5c388cf 100644
 +async def generate_audiobook_wrapper(voice_type, narrator_gender, output_format, book_file, emotion_tags_processed_state, kb_file):
      """Wrapper for audiobook generation with validation and progress updates"""
      if book_file is None:
-         yield gr.Warning("Please upload a book file first."), None
-@@ -151,42 +171,42 @@ async def generate_audiobook_wrapper(voice_type, narrator_gender, output_format,
-         yield gr.Warning("Please select voice type and output format."), None
-         yield None, None
+-        yield gr.Warning("Please upload a book file first."), None
+-        yield None, None
++        yield gr.Warning("Please upload a book file first."), None, None
++        yield None, None, None
+         return
+     if not voice_type or not output_format:
+-        yield gr.Warning("Please select voice type and output format."), None
+-        yield None, None
++        yield gr.Warning("Please select voice type and output format."), None, None
++        yield None, None, None
          return
 -    
 +
      # Early validation for M4B format
      if output_format == "M4B (Chapters & Cover)":
-         yield gr.Info("Validating book file for M4B audiobook generation..."), None
+-        yield gr.Info("Validating book file for M4B audiobook generation..."), None
++        yield gr.Info("Validating book file for M4B audiobook generation..."), None, None
          is_valid, error_message, metadata = validate_book_for_m4b_generation(book_file)
 -        
 +
          if not is_valid:
-             yield gr.Warning(f"❌ Book validation failed: {error_message}"), None
-             yield None, None
+-            yield gr.Warning(f"❌ Book validation failed: {error_message}"), None
+-            yield None, None
++            yield gr.Warning(f"❌ Book validation failed: {error_message}"), None, None
++            yield None, None, None
              return
 -            
-+
-         yield gr.Info(f"✅ Book validation successful! Title: {metadata.get('Title', 'Unknown')}, Author: {metadata.get('Author(s)', 'Unknown')}"), None
+-        yield gr.Info(f"✅ Book validation successful! Title: {metadata.get('Title', 'Unknown')}, Author: {metadata.get('Author(s)', 'Unknown')}"), None
 -    
++
++        yield gr.Info(f"✅ Book validation successful! Title: {metadata.get('Title', 'Unknown')}, Author: {metadata.get('Author(s)', 'Unknown')}"), None, None
 +
      # Use session state to determine if emotion tags should be used
      add_emotion_tags = emotion_tags_processed_state
 -    
 +
      if add_emotion_tags:
-         yield gr.Info("🎭 Using emotion tags (processed in current session)"), None
+-        yield gr.Info("🎭 Using emotion tags (processed in current session)"), None
++        yield gr.Info("🎭 Using emotion tags (processed in current session)"), None, None
      else:
-         yield gr.Info("📖 Using standard narration"), None
+-        yield gr.Info("📖 Using standard narration"), None
 -    
++        yield gr.Info("📖 Using standard narration"), None, None
 +
      try:
          last_output = None
@@ -148,8 +160,9 @@ index 8035285..5c388cf 100644
 -        async for output in process_audiobook_generation(voice_type, narrator_gender, output_format, book_file, add_emotion_tags):
 +        async for output in process_audiobook_generation(voice_type, narrator_gender, output_format, book_file, add_emotion_tags, kb_file):
              last_output = output
-             yield output, None  # Yield each progress update without file path
+-            yield output, None  # Yield each progress update without file path
 -        
++            yield output, None, None  # Yield each progress update without file path
 +
          # Get the correct file extension based on the output format
          generate_m4b_audiobook_file = True if output_format == "M4B (Chapters & Cover)" else False
@@ -159,11 +172,25 @@ index 8035285..5c388cf 100644
          # Set the audiobook file path according to the provided information
          audiobook_path = os.path.join("generated_audiobooks", f"audiobook.{file_extension}")
 -        
++        kb_output_path = os.path.join("generated_audiobooks", "knowledge_base.json")
 +
          # Final yield with success notification and file path
-         yield gr.Info(f"Audiobook generated successfully in {output_format} format! You can now download it in the Download section. Click on the blue download link next to the file name.", duration=10), None
-         yield last_output, audiobook_path
-@@ -206,80 +226,80 @@ def update_emotion_tags_status_and_state():
+-        yield gr.Info(f"Audiobook generated successfully in {output_format} format! You can now download it in the Download section. Click on the blue download link next to the file name.", duration=10), None
+-        yield last_output, audiobook_path
++        yield gr.Info(f"Audiobook generated successfully in {output_format} format! You can now download it in the Download section. Click on the blue download link next to the file name.", duration=10), None, None
++        yield last_output, audiobook_path, kb_output_path
+         return
+     except Exception as e:
+         print(e)
+         traceback.print_exc()
+-        yield gr.Warning(f"Error generating audiobook: {str(e)}"), None
+-        yield None, None
++        yield gr.Warning(f"Error generating audiobook: {str(e)}"), None, None
++        yield None, None, None
+         return
+ 
+ def update_emotion_tags_status_and_state():
+@@ -206,80 +227,80 @@ def update_emotion_tags_status_and_state():
  with gr.Blocks(css=css, theme=gr.themes.Default()) as gradio_app:
      gr.Markdown("# 📖 Audiobook Creator")
      gr.Markdown("Create professional audiobooks from your ebooks in just a few steps.")
@@ -265,7 +292,7 @@ index 8035285..5c388cf 100644
                  placeholder="Character identification progress will be shown here",
                  interactive=False,
                  lines=3
-@@ -290,9 +310,9 @@ with gr.Blocks(css=css, theme=gr.themes.Default()) as gradio_app:
+@@ -290,9 +311,9 @@ with gr.Blocks(css=css, theme=gr.themes.Default()) as gradio_app:
      with gr.Row(visible=emotion_tags_visible):
          with gr.Column():
              gr.Markdown('<div class="step-heading">🎭 Step 3.5: Add Emotion Tags (Optional - Requires LLM)</div>')
@@ -277,7 +304,7 @@ index 8035285..5c388cf 100644
              with gr.Accordion("What are Emotion Tags?", open=True):
                  gr.Markdown("""
                  **Emotion Tags enhance your audiobook by adding natural expressions:**
-@@ -305,12 +325,12 @@ with gr.Blocks(css=css, theme=gr.themes.Default()) as gradio_app:
+@@ -305,12 +326,12 @@ with gr.Blocks(css=css, theme=gr.themes.Default()) as gradio_app:
                  * **`<groan>`** - For groaning sounds expressing discomfort/frustration
                  * **`<yawn>`** - For yawning or expressions of tiredness
                  * **`<gasp>`** - For gasping sounds of surprise/shock
@@ -293,7 +320,7 @@ index 8035285..5c388cf 100644
                  placeholder="Emotion tags processing progress will be shown here",
                  interactive=False,
                  lines=3
-@@ -319,39 +339,48 @@ with gr.Blocks(css=css, theme=gr.themes.Default()) as gradio_app:
+@@ -319,39 +340,47 @@ with gr.Blocks(css=css, theme=gr.themes.Default()) as gradio_app:
      with gr.Row():
          with gr.Column():
              gr.Markdown('<div class="step-heading">🎧 Step 4: Generate Audiobook</div>')
@@ -302,8 +329,7 @@ index 8035285..5c388cf 100644
 +            # Knowledge base file input
 +            kb_input = gr.File(
 +                label="Knowledge Base (Optional)",
-+                file_types=[".json", ".txt"],
-+                info="Upload a JSON knowledge base file to enhance audiobook generation. This can contain character information, relationships, or other contextual data."
++                file_types=[".json", ".txt"]
 +            )
 +
 +            validate_kb_btn = gr.Button("Validate Knowledge Base", variant="secondary", size="sm")
@@ -352,7 +378,7 @@ index 8035285..5c388cf 100644
              with gr.Group(visible=emotion_tags_visible) as emotion_tags_group:
                  emotion_tags_status_display = gr.Radio(
                      choices=["✅ Emotion tags processed - will be used in audiobook", "❌ No emotion tags - standard narration will be used"],
-@@ -360,16 +389,16 @@ with gr.Blocks(css=css, theme=gr.themes.Default()) as gradio_app:
+@@ -360,56 +389,71 @@ with gr.Blocks(css=css, theme=gr.themes.Default()) as gradio_app:
                      interactive=False,
                      info="This will update automatically when you process emotion tags in Step 3.5"
                  )
@@ -369,15 +395,33 @@ index 8035285..5c388cf 100644
                  lines=3
              )
 -            
+-            # Add a new File component for downloading the audiobook
 +
-             # Add a new File component for downloading the audiobook
++            # Add a new Group for downloading files
              with gr.Group(visible=False) as download_box:
-                 gr.Markdown("### 📥 Download Your Audiobook")
-@@ -378,38 +407,38 @@ with gr.Blocks(css=css, theme=gr.themes.Default()) as gradio_app:
+-                gr.Markdown("### 📥 Download Your Audiobook")
++                gr.Markdown("### 📥 Download Your Files")
++                
++                # File component for audiobook
+                 audiobook_file = gr.File(
+                     label="Download Generated Audiobook",
                      interactive=False,
                      type="filepath"
                  )
 -    
++                
++                # File component for updated knowledge base
++                knowledge_base_file = gr.File(
++                    label="Download Updated Knowledge Base",
++                    interactive=False,
++                    type="filepath"
++                )
++    # File component for updated knowledge base
++    knowledge_base_file = gr.File(
++        label="Download Updated Knowledge Base",
++        interactive=False,
++        type="filepath"
++    )
 +
      # Connections with proper handling of Gradio notifications
      validate_btn.click(
@@ -427,7 +471,7 @@ index 8035285..5c388cf 100644
          outputs=[emotion_tags_output],
          queue=True
      ).then(
-@@ -418,11 +447,17 @@ with gr.Blocks(css=css, theme=gr.themes.Default()) as gradio_app:
+@@ -418,20 +462,26 @@ with gr.Blocks(css=css, theme=gr.themes.Default()) as gradio_app:
          inputs=[],
          outputs=[emotion_tags_status_display, emotion_tags_processed]
      )
@@ -443,13 +487,17 @@ index 8035285..5c388cf 100644
      generate_btn.click(
 -        generate_audiobook_wrapper, 
 -        inputs=[voice_type, narrator_gender, output_format, book_input, emotion_tags_processed], 
+-        outputs=[audio_output, audiobook_file],
 +        generate_audiobook_wrapper,
 +        inputs=[voice_type, narrator_gender, output_format, book_input, emotion_tags_processed, kb_input],
-         outputs=[audio_output, audiobook_file],
++        outputs=[audio_output, audiobook_file, knowledge_base_file],
          queue=True
      ).then(
-@@ -431,7 +466,7 @@ with gr.Blocks(css=css, theme=gr.themes.Default()) as gradio_app:
-         inputs=[audiobook_file],
+         # Make the download box visible after generation completes successfully
+-        lambda x: gr.update(visible=True) if x is not None else gr.update(visible=False),
+-        inputs=[audiobook_file],
++        lambda audio_path, kb_path: gr.update(visible=True) if audio_path is not None and kb_path is not None else gr.update(visible=False),
++        inputs=[audiobook_file, knowledge_base_file],
          outputs=[download_box]
      )
 -    
@@ -457,7 +505,7 @@ index 8035285..5c388cf 100644
      # Navigation button functionality for textbox scrolling
      top_btn.click(
          None,
-@@ -446,7 +481,7 @@ with gr.Blocks(css=css, theme=gr.themes.Default()) as gradio_app:
+@@ -446,7 +496,7 @@ with gr.Blocks(css=css, theme=gr.themes.Default()) as gradio_app:
          }
          """
      )
@@ -466,7 +514,7 @@ index 8035285..5c388cf 100644
      bottom_btn.click(
          None,
          inputs=[],
-@@ -465,4 +500,4 @@ app = gr.mount_gradio_app(app, gradio_app, path="/")  # Mount Gradio at root
+@@ -465,4 +515,4 @@ app = gr.mount_gradio_app(app, gradio_app, path="/")  # Mount Gradio at root
  
  if __name__ == "__main__":
      import uvicorn
