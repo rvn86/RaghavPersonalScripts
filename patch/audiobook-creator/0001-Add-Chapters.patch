@@ -1,19 +1,87 @@
-From 2a1b3b0a8b3d5d08b449ba3eb405fa61e62ceeaa Mon Sep 17 00:00:00 2001
+From e330b0abe50d04acc87150425f65dc00b0f66e21 Mon Sep 17 00:00:00 2001
 From: Raghav <ragha.nv@gmail.com>
 Date: Sat, 11 Oct 2025 16:27:17 -0700
 Subject: [PATCH] Add chapters
 
 ---
- app.py                   |   4 +-
- generate_audiobook.py    |  37 ++++++--
- utils/audiobook_utils.py | 188 +++++++++++++++++++++++++++++++--------
- 3 files changed, 180 insertions(+), 49 deletions(-)
+ app.py                   |  45 +++-
+ generate_audiobook.py    | 432 ++++++++++++++++++---------------------
+ utils/audiobook_utils.py | 188 +++++++++++++----
+ 3 files changed, 391 insertions(+), 274 deletions(-)
 
 diff --git a/app.py b/app.py
-index 8035285..7370896 100644
+index 8035285..86b78e9 100644
 --- a/app.py
 +++ b/app.py
-@@ -345,7 +345,7 @@ with gr.Blocks(css=css, theme=gr.themes.Default()) as gradio_app:
+@@ -19,6 +19,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ import gradio as gr
+ import os
+ import traceback
++import json
+ from fastapi import FastAPI
+ from book_to_txt import process_book_and_extract_text, save_book
+ from identify_characters_and_output_book_to_jsonl import process_book_and_identify_characters
+@@ -44,6 +45,25 @@ def validate_book_upload(book_file, book_title):
+     
+     return gr.Info(f"Book '{book_title}' ready for processing.", duration=5)
+ 
++def validate_knowledge_base(kb_file):
++    """Validate knowledge base JSON file and return a notification"""
++    if kb_file is None:
++        return gr.Info("No knowledge base provided. Character identification will use default method.", duration=5)
++    
++    try:
++        with open(kb_file, 'r', encoding='utf-8') as f:
++            kb_data = json.load(f)
++        
++        # Basic validation - check if it's a valid JSON structure
++        if not isinstance(kb_data, (dict, list)):
++            return gr.Warning("Knowledge base must be a JSON object or array.")
++        
++        return gr.Info(f"Knowledge base loaded successfully! ({len(kb_data) if isinstance(kb_data, list) else len(kb_data.keys())} entries)", duration=5)
++    except json.JSONDecodeError as e:
++        return gr.Warning(f"Invalid JSON format in knowledge base: {str(e)}")
++    except Exception as e:
++        return gr.Warning(f"Error reading knowledge base: {str(e)}")
++
+ def text_extraction_wrapper(book_file, text_decoding_option, book_title):
+     """Wrapper for text extraction with validation and progress updates"""
+     if book_file is None or not book_title:
+@@ -141,7 +161,7 @@ async def add_emotion_tags_wrapper():
+         yield None
+         return
+ 
+-async def generate_audiobook_wrapper(voice_type, narrator_gender, output_format, book_file, emotion_tags_processed_state):
++async def generate_audiobook_wrapper(voice_type, narrator_gender, output_format, book_file, emotion_tags_processed_state, kb_file):
+     """Wrapper for audiobook generation with validation and progress updates"""
+     if book_file is None:
+         yield gr.Warning("Please upload a book file first."), None
+@@ -176,7 +196,7 @@ async def generate_audiobook_wrapper(voice_type, narrator_gender, output_format,
+         last_output = None
+         audiobook_path = None
+         # Pass through all yield values from the original function
+-        async for output in process_audiobook_generation(voice_type, narrator_gender, output_format, book_file, add_emotion_tags):
++        async for output in process_audiobook_generation(voice_type, narrator_gender, output_format, book_file, add_emotion_tags, kb_file):
+             last_output = output
+             yield output, None  # Yield each progress update without file path
+         
+@@ -320,6 +340,15 @@ with gr.Blocks(css=css, theme=gr.themes.Default()) as gradio_app:
+         with gr.Column():
+             gr.Markdown('<div class="step-heading">🎧 Step 4: Generate Audiobook</div>')
+             
++            # Knowledge base file input
++            kb_input = gr.File(
++                label="Knowledge Base (Optional)",
++                file_types=[".json", ".txt"],
++                info="Upload a JSON knowledge base file to enhance audiobook generation. This can contain character information, relationships, or other contextual data."
++            )
++            
++            validate_kb_btn = gr.Button("Validate Knowledge Base", variant="secondary", size="sm")
++            
+             with gr.Row():
+                 voice_type = gr.Radio(
+                     ["Single Voice", "Multi-Voice"], 
+@@ -345,7 +374,7 @@ with gr.Blocks(css=css, theme=gr.themes.Default()) as gradio_app:
                  output_format = gr.Dropdown(
                      ["M4B (Chapters & Cover)", "AAC", "M4A", "MP3", "WAV", "OPUS", "FLAC", "PCM"], 
                      label="Output Format",
@@ -22,7 +90,25 @@ index 8035285..7370896 100644
                      info="M4B supports chapters and cover art"
                  )
              
-@@ -465,4 +465,4 @@ app = gr.mount_gradio_app(app, gradio_app, path="/")  # Mount Gradio at root
+@@ -419,10 +448,16 @@ with gr.Blocks(css=css, theme=gr.themes.Default()) as gradio_app:
+         outputs=[emotion_tags_status_display, emotion_tags_processed]
+     )
+     
++    validate_kb_btn.click(
++        validate_knowledge_base,
++        inputs=[kb_input],
++        outputs=[]
++    )
++    
+     # Update the generate_audiobook_wrapper to output both progress text and file path
+     generate_btn.click(
+         generate_audiobook_wrapper, 
+-        inputs=[voice_type, narrator_gender, output_format, book_input, emotion_tags_processed], 
++        inputs=[voice_type, narrator_gender, output_format, book_input, emotion_tags_processed, kb_input], 
+         outputs=[audio_output, audiobook_file],
+         queue=True
+     ).then(
+@@ -465,4 +500,4 @@ app = gr.mount_gradio_app(app, gradio_app, path="/")  # Mount Gradio at root
  
  if __name__ == "__main__":
      import uvicorn
@@ -30,7 +116,7 @@ index 8035285..7370896 100644
 \ No newline at end of file
 +    uvicorn.run(app, host="0.0.0.0", port=7860)
 diff --git a/generate_audiobook.py b/generate_audiobook.py
-index 1711db2..e16165e 100755
+index 1711db2..7162cfe 100755
 --- a/generate_audiobook.py
 +++ b/generate_audiobook.py
 @@ -16,6 +16,7 @@ You should have received a copy of the GNU General Public License
@@ -62,89 +148,474 @@ index 1711db2..e16165e 100755
      return text
  
  def is_only_punctuation(text):
-@@ -381,13 +388,18 @@ async def generate_audio_with_single_voice(output_format, narrator_gender, gener
-     
-     # Process tasks with progress updates
-     last_reported = -1
+@@ -207,6 +214,151 @@ def validate_book_for_m4b_generation(book_path):
+     except Exception as e:
+         return False, f"Unexpected error during book validation: {str(e)}", None
+ 
++async def process_audio_results_and_generate_audiobook(
++    results_all,
++    task_to_index,
++    tasks,
++    progress_counter,
++    total_lines,
++    temp_line_audio_dir,
++    temp_audio_dir,
++    chapter_files,
++    output_format,
++    generate_m4b_audiobook_file,
++    book_path,
++    progress_bar
++):
++    """
++    Common function to process audio results and generate the final audiobook.
++    Extracted from both generate_audio_with_single_voice and generate_audio_with_multiple_voices.
++    """
++    # Initialize chapter tracking variables
++    chapter_index = 1
++    current_chapter_audio = "Introduction.wav"
++    chapter_line_map = {}
++    
++    # Process tasks with progress updates
++    last_reported = -1
 +    latest_chapter_name = None
-     while tasks:
-         done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
-         
-         # Store results as tasks complete
-         for completed_task in done:
-             idx = task_to_index[completed_task]
--            results_all[idx] = completed_task.result()
++    while tasks:
++        done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
++        
++        # Store results as tasks complete
++        for completed_task in done:
++            idx = task_to_index[completed_task]
 +            result = completed_task.result()
 +            results_all[idx] = result
 +
 +            if result and result["is_chapter_heading"]:
 +                latest_chapter_name = result['line']
-         
-         tasks = list(pending)
-         
-@@ -395,7 +407,7 @@ async def generate_audio_with_single_voice(output_format, narrator_gender, gener
-         if progress_counter > last_reported:
-             last_reported = progress_counter
-             percent = (progress_counter / total_size) * 100
--            yield f"Generating audiobook. Progress: {percent:.1f}%"
++        
++        tasks = list(pending)
++        
++        # Only yield if the counter has changed
++        if progress_counter > last_reported:
++            last_reported = progress_counter
++            percent = (progress_counter / total_lines) * 100
 +            yield f"Generating audiobook. Chapter: {latest_chapter_name or 'N/A'}. Progress: {percent:.1f}%"
-     
-     # All tasks have completed at this point and results_all is populated
-     results = [r for r in results_all if r is not None]  # Filter out empty lines
-@@ -410,6 +422,7 @@ async def generate_audio_with_single_voice(output_format, narrator_gender, gener
-     # Second pass: Organize by chapters
-     chapter_organization_bar = tqdm(total=len(results), unit="result", desc="Organizing Chapters")
-     
++    
++    # All tasks have completed at this point and results_all is populated
++    results = [r for r in results_all if r is not None]  # Filter out empty lines
++    
++    progress_bar.close()
++    
++    # Filter out empty lines (same as in your original code)
++    results = [r for r in results_all if r is not None]
++    
++    yield "Completed generating audio for all lines"
++
++    # Second pass: Organize by chapters
++    chapter_organization_bar = tqdm(total=len(results), unit="result", desc="Organizing Chapters")
++    yield "Organizing lines into chapters"
++    
 +    chapter_line_text_map = {}
-     for result in sorted(results, key=lambda x: x["index"]):
-         # Check if this is a chapter heading
-         if result["is_chapter_heading"]:
-@@ -422,6 +435,7 @@ async def generate_audio_with_single_voice(output_format, narrator_gender, gener
-             
-         # Add this line index to the chapter
-         chapter_line_map[current_chapter_audio].append(result["index"])
++    for result in sorted(results, key=lambda x: x["index"]):
++        # Check if this is a chapter heading
++        if result["is_chapter_heading"]:
++            chapter_index += 1
++            current_chapter_audio = f"{sanitize_filename(result['line'])}.wav"
++            
++        if current_chapter_audio not in chapter_files:
++            chapter_files.append(current_chapter_audio)
++            chapter_line_map[current_chapter_audio] = []
++            
++        # Add this line index to the chapter
++        chapter_line_map[current_chapter_audio].append(result["index"])
 +        chapter_line_text_map[result["index"]] = result["line"]
-         chapter_organization_bar.update(1)
-     
-     chapter_organization_bar.close()
-@@ -430,13 +444,18 @@ async def generate_audio_with_single_voice(output_format, narrator_gender, gener
-     # Third pass: Concatenate audio files for each chapter in order
-     chapter_assembly_bar = tqdm(total=len(chapter_files), unit="chapter", desc="Assembling Chapters")
-     
++        chapter_organization_bar.update(1)
++    
++    chapter_organization_bar.close()
++    yield f"Organized {len(results)} lines into {len(chapter_files)} chapters"
++    
++    # Third pass: Concatenate audio files for each chapter in order
++    chapter_assembly_bar = tqdm(total=len(chapter_files), unit="chapter", desc="Assembling Chapters")
++    
 +    SILENCE_DURATION_MS = 1000
 +    line_timings = []
-     for chapter_file in chapter_files:
-         # Use FFmpeg-based assembly instead of PyDub for memory efficiency
-         assemble_chapter_with_ffmpeg(
-             chapter_file, 
-             chapter_line_map[chapter_file], 
-             temp_line_audio_dir, 
--            temp_audio_dir
++    for chapter_file in chapter_files:
++        # Use FFmpeg-based assembly instead of PyDub for memory efficiency
++        assemble_chapter_with_ffmpeg(
++            chapter_file, 
++            chapter_line_map[chapter_file], 
++            temp_line_audio_dir, 
 +            temp_audio_dir,
 +            chapter_line_text_map,
 +            line_timings,
 +            SILENCE_DURATION_MS
-         )
-         
-         chapter_assembly_bar.update(1)
-@@ -453,7 +472,7 @@ async def generate_audio_with_single_voice(output_format, narrator_gender, gener
-         chapter_path = os.path.join(temp_audio_dir, chapter_file)
-         
-         # Use FFmpeg-based silence addition instead of PyDub for memory efficiency
--        add_silence_to_chapter_with_ffmpeg(chapter_path, 1000)  # 1 second silence
++        )
++        
++        chapter_assembly_bar.update(1)
++        yield f"Assembled chapter: {chapter_file}"
++    
++    chapter_assembly_bar.close()
++    yield "Completed assembling all chapters"
++    
++    # Post-processing steps
++    post_processing_bar = tqdm(total=len(chapter_files)*2, unit="task", desc="Post Processing")
++    
++    # Add silence to each chapter file using FFmpeg
++    for chapter_file in chapter_files:
++        chapter_path = os.path.join(temp_audio_dir, chapter_file)
++        
++        # Use FFmpeg-based silence addition instead of PyDub for memory efficiency
 +        add_silence_to_chapter_with_ffmpeg(chapter_path, SILENCE_DURATION_MS)  # 1 second silence
-         
-         post_processing_bar.update(1)
-         yield f"Added silence to chapter: {chapter_file}"
-@@ -483,7 +502,7 @@ async def generate_audio_with_single_voice(output_format, narrator_gender, gener
-     else:
-         # Merge all chapter files into a standard M4A audiobook
-         yield "Creating final audiobook..."
--        merge_chapters_to_standard_audio_file(m4a_chapter_files)
++        
++        post_processing_bar.update(1)
++        yield f"Added silence to chapter: {chapter_file}"
++
++    m4a_chapter_files = []
++
++    # Convert all chapter files to M4A format
++    for chapter_file in chapter_files:
++        chapter_name = chapter_file.split('.')[0]
++        m4a_chapter_files.append(f"{chapter_name}.m4a")
++        # Convert WAV to M4A for better compatibility with timestamps and metadata
++        convert_audio_file_formats("wav", "m4a", temp_audio_dir, chapter_name)
++        post_processing_bar.update(1)
++        yield f"Converted chapter to M4A: {chapter_name}"
++    
++    post_processing_bar.close()
++    
++    # Clean up temp line audio files
++    yield "Cleaning up temporary files"
++    shutil.rmtree(temp_line_audio_dir)
++    yield "Temporary files cleanup complete"
++
++    if generate_m4b_audiobook_file:
++        # Merge all chapter files into a final m4b audiobook
++        yield "Creating M4B audiobook file..."
++        merge_chapters_to_m4b(book_path, m4a_chapter_files)
++        yield "M4B audiobook created successfully"
++    else:
++        # Merge all chapter files into a standard M4A audiobook
++        yield "Creating final audiobook..."
 +        merge_chapters_to_standard_audio_file(m4a_chapter_files, line_timings)
-         convert_audio_file_formats("m4a", output_format, "generated_audiobooks", "audiobook")
-         yield f"Audiobook in {output_format} format created successfully"
++        convert_audio_file_formats("m4a", output_format, "generated_audiobooks", "audiobook")
++        yield f"Audiobook in {output_format} format created successfully"
++
+ async def generate_audio_with_single_voice(output_format, narrator_gender, generate_m4b_audiobook_file=False, book_path="", add_emotion_tags=False):
+     # Read the text from the file
+     """
+@@ -277,8 +429,6 @@ async def generate_audio_with_single_voice(output_format, narrator_gender, gener
+     semaphore = asyncio.Semaphore(TTS_MAX_PARALLEL_REQUESTS_BATCH_SIZE)
+     
+     # Initial setup for chapters
+-    chapter_index = 1
+-    current_chapter_audio = f"Introduction.wav"
+     chapter_files = []
+     
+     # First pass: Generate audio for each line independently
+@@ -289,9 +439,6 @@ async def generate_audio_with_single_voice(output_format, narrator_gender, gener
+     # For tracking progress with tqdm in an async context
+     progress_bar = tqdm(total=total_size, unit="line", desc="Audio Generation Progress")
+     
+-    # Maps chapters to their line indices
+-    chapter_line_map = {}
+-    
+     async def process_single_line(line_index, line):
+         async with semaphore:
+             nonlocal progress_counter
+@@ -379,113 +526,22 @@ async def generate_audio_with_single_voice(output_format, narrator_gender, gener
+     # Initialize results_all list
+     results_all = [None] * len(lines)
+     
+-    # Process tasks with progress updates
+-    last_reported = -1
+-    while tasks:
+-        done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+-        
+-        # Store results as tasks complete
+-        for completed_task in done:
+-            idx = task_to_index[completed_task]
+-            results_all[idx] = completed_task.result()
+-        
+-        tasks = list(pending)
+-        
+-        # Only yield if the counter has changed
+-        if progress_counter > last_reported:
+-            last_reported = progress_counter
+-            percent = (progress_counter / total_size) * 100
+-            yield f"Generating audiobook. Progress: {percent:.1f}%"
+-    
+-    # All tasks have completed at this point and results_all is populated
+-    results = [r for r in results_all if r is not None]  # Filter out empty lines
+-    
+-    progress_bar.close()
+-    
+-    # Filter out empty lines (same as in your original code)
+-    results = [r for r in results_all if r is not None]
+-    
+-    yield "Completed generating audio for all lines"
+-
+-    # Second pass: Organize by chapters
+-    chapter_organization_bar = tqdm(total=len(results), unit="result", desc="Organizing Chapters")
+-    
+-    for result in sorted(results, key=lambda x: x["index"]):
+-        # Check if this is a chapter heading
+-        if result["is_chapter_heading"]:
+-            chapter_index += 1
+-            current_chapter_audio = f"{sanitize_filename(result['line'])}.wav"
+-            
+-        if current_chapter_audio not in chapter_files:
+-            chapter_files.append(current_chapter_audio)
+-            chapter_line_map[current_chapter_audio] = []
+-            
+-        # Add this line index to the chapter
+-        chapter_line_map[current_chapter_audio].append(result["index"])
+-        chapter_organization_bar.update(1)
+-    
+-    chapter_organization_bar.close()
+-    yield "Organizing audio by chapters complete"
+-    
+-    # Third pass: Concatenate audio files for each chapter in order
+-    chapter_assembly_bar = tqdm(total=len(chapter_files), unit="chapter", desc="Assembling Chapters")
+-    
+-    for chapter_file in chapter_files:
+-        # Use FFmpeg-based assembly instead of PyDub for memory efficiency
+-        assemble_chapter_with_ffmpeg(
+-            chapter_file, 
+-            chapter_line_map[chapter_file], 
+-            temp_line_audio_dir, 
+-            temp_audio_dir
+-        )
+-        
+-        chapter_assembly_bar.update(1)
+-        yield f"Assembled chapter: {chapter_file}"
+-    
+-    chapter_assembly_bar.close()
+-    yield "Completed assembling all chapters"
+-    
+-    # Post-processing steps
+-    post_processing_bar = tqdm(total=len(chapter_files)*2, unit="task", desc="Post Processing")
+-    
+-    # Add silence to each chapter file using FFmpeg
+-    for chapter_file in chapter_files:
+-        chapter_path = os.path.join(temp_audio_dir, chapter_file)
+-        
+-        # Use FFmpeg-based silence addition instead of PyDub for memory efficiency
+-        add_silence_to_chapter_with_ffmpeg(chapter_path, 1000)  # 1 second silence
+-        
+-        post_processing_bar.update(1)
+-        yield f"Added silence to chapter: {chapter_file}"
+-
+-    m4a_chapter_files = []
+-
+-    # Convert all chapter files to M4A format
+-    for chapter_file in chapter_files:
+-        chapter_name = chapter_file.split('.')[0]
+-        m4a_chapter_files.append(f"{chapter_name}.m4a")
+-        # Convert WAV to M4A for better compatibility with timestamps and metadata
+-        convert_audio_file_formats("wav", "m4a", temp_audio_dir, chapter_name)
+-        post_processing_bar.update(1)
+-        yield f"Converted chapter to M4A: {chapter_name}"
+-    
+-    post_processing_bar.close()
+-    
+-    # Clean up temp line audio files
+-    shutil.rmtree(temp_line_audio_dir)
+-    yield "Cleaned up temporary files"
+-
+-    if generate_m4b_audiobook_file:
+-        # Merge all chapter files into a final m4b audiobook
+-        yield "Creating M4B audiobook file..."
+-        merge_chapters_to_m4b(book_path, m4a_chapter_files)
+-        yield "M4B audiobook created successfully"
+-    else:
+-        # Merge all chapter files into a standard M4A audiobook
+-        yield "Creating final audiobook..."
+-        merge_chapters_to_standard_audio_file(m4a_chapter_files)
+-        convert_audio_file_formats("m4a", output_format, "generated_audiobooks", "audiobook")
+-        yield f"Audiobook in {output_format} format created successfully"
++    # Call common processing function
++    async for progress_msg in process_audio_results_and_generate_audiobook(
++        results_all,
++        task_to_index,
++        tasks,
++        progress_counter,
++        total_size,
++        temp_line_audio_dir,
++        temp_audio_dir,
++        chapter_files,
++        output_format,
++        generate_m4b_audiobook_file,
++        book_path,
++        progress_bar
++    ):
++        yield progress_msg
  
+ def apply_emotion_tags_to_multi_voice_data(json_data_array):
+     """
+@@ -625,14 +681,10 @@ async def generate_audio_with_multiple_voices(output_format, narrator_gender, ge
+     semaphore = asyncio.Semaphore(TTS_MAX_PARALLEL_REQUESTS_BATCH_SIZE)
+     
+     # Initial setup for chapters
+-    chapter_index = 1
+-    current_chapter_audio = f"Introduction.wav"
+     chapter_files = []
+     
+     # First pass: Generate audio for each line independently
+     # and track chapter organization
+-    chapter_line_map = {}  # Maps chapters to their line indices
+-
+     progress_counter = 0
+     
+     # For tracking progress with tqdm in an async context
+@@ -733,122 +785,40 @@ async def generate_audio_with_multiple_voices(output_format, narrator_gender, ge
+     # Initialize results_all list
+     results_all = [None] * len(json_data_array)
+     
+-    # Process tasks with progress updates
+-    last_reported = -1
+-    while tasks:
+-        done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+-        
+-        # Store results as tasks complete
+-        for completed_task in done:
+-            idx = task_to_index[completed_task]
+-            results_all[idx] = completed_task.result()
+-        
+-        tasks = list(pending)
+-        
+-        # Only yield if the counter has changed
+-        if progress_counter > last_reported:
+-            last_reported = progress_counter
+-            percent = (progress_counter / total_lines) * 100
+-            yield f"Generating audiobook. Progress: {percent:.1f}%"
+-    
+-    # All tasks have completed at this point and results_all is populated
+-    results = [r for r in results_all if r is not None]  # Filter out empty lines
+-    
+-    progress_bar.close()
+-    
+-    # Filter out empty lines (same as in your original code)
+-    results = [r for r in results_all if r is not None]
+-    
+-    yield "Completed generating audio for all lines"
+-    
+-    # Second pass: Organize by chapters
+-    chapter_organization_bar = tqdm(total=len(results), unit="result", desc="Organizing Chapters")
+-    yield "Organizing lines into chapters"
+-    
+-    for result in sorted(results, key=lambda x: x["index"]):
+-        # Check if this is a chapter heading
+-        if result["is_chapter_heading"]:
+-            chapter_index += 1
+-            current_chapter_audio = f"{sanitize_filename(result['line'])}.wav"
+-            
+-        if current_chapter_audio not in chapter_files:
+-            chapter_files.append(current_chapter_audio)
+-            chapter_line_map[current_chapter_audio] = []
+-            
+-        # Add this line index to the chapter
+-        chapter_line_map[current_chapter_audio].append(result["index"])
+-        chapter_organization_bar.update(1)
+-    
+-    chapter_organization_bar.close()
+-    yield f"Organized {len(results)} lines into {len(chapter_files)} chapters"
+-    
+-    # Third pass: Concatenate audio files for each chapter in order
+-    chapter_assembly_bar = tqdm(total=len(chapter_files), unit="chapter", desc="Assembling Chapters")
+-    
+-    for chapter_file in chapter_files:
+-        # Use FFmpeg-based assembly instead of PyDub for memory efficiency
+-        assemble_chapter_with_ffmpeg(
+-            chapter_file, 
+-            chapter_line_map[chapter_file], 
+-            temp_line_audio_dir, 
+-            temp_audio_dir
+-        )
+-        
+-        chapter_assembly_bar.update(1)
+-        yield f"Assembled chapter: {chapter_file}"
+-    
+-    chapter_assembly_bar.close()
+-    yield "Completed assembling all chapters"
+-    
+-    # Post-processing steps
+-    post_processing_bar = tqdm(total=len(chapter_files)*2, unit="task", desc="Post Processing")
+-    
+-    # Add silence to each chapter file using FFmpeg
+-    for chapter_file in chapter_files:
+-        chapter_path = os.path.join(temp_audio_dir, chapter_file)
+-        
+-        # Use FFmpeg-based silence addition instead of PyDub for memory efficiency
+-        add_silence_to_chapter_with_ffmpeg(chapter_path, 1000)  # 1 second silence
+-        
+-        post_processing_bar.update(1)
+-        yield f"Added silence to chapter: {chapter_file}"
+-
+-    m4a_chapter_files = []
+-
+-    # Convert all chapter files to M4A format
+-    for chapter_file in chapter_files:
+-        chapter_name = chapter_file.split('.')[0]
+-        m4a_chapter_files.append(f"{chapter_name}.m4a")
+-        # Convert WAV to M4A for better compatibility with timestamps and metadata
+-        convert_audio_file_formats("wav", "m4a", temp_audio_dir, chapter_name)
+-        post_processing_bar.update(1)
+-        yield f"Converted chapter to M4A: {chapter_name}"
+-    
+-    post_processing_bar.close()
+-    
+-    # Clean up temp line audio files
+-    yield "Cleaning up temporary files"
+-    shutil.rmtree(temp_line_audio_dir)
+-    yield "Temporary files cleanup complete"
+-
+-    if generate_m4b_audiobook_file:
+-        # Merge all chapter files into a final m4b audiobook
+-        yield "Creating M4B audiobook file..."
+-        merge_chapters_to_m4b(book_path, m4a_chapter_files)
+-        yield "M4B audiobook created successfully"
+-    else:
+-        # Merge all chapter files into a standard M4A audiobook
+-        yield "Creating final audiobook..."
+-        merge_chapters_to_standard_audio_file(m4a_chapter_files)
+-        convert_audio_file_formats("m4a", output_format, "generated_audiobooks", "audiobook")
+-        yield f"Audiobook in {output_format} format created successfully"
+-
+-async def process_audiobook_generation(voice_option, narrator_gender, output_format, book_path, add_emotion_tags=False):
++    # Call common processing function
++    async for progress_msg in process_audio_results_and_generate_audiobook(
++        results_all,
++        task_to_index,
++        tasks,
++        progress_counter,
++        total_lines,
++        temp_line_audio_dir,
++        temp_audio_dir,
++        chapter_files,
++        output_format,
++        generate_m4b_audiobook_file,
++        book_path,
++        progress_bar
++    ):
++        yield progress_msg
++
++async def process_audiobook_generation(voice_option, narrator_gender, output_format, book_path, add_emotion_tags=False, kb_file=None):
+     is_audio_generator_api_up, message = await check_if_audio_generator_api_is_up(async_openai_client)
+ 
+     if not is_audio_generator_api_up:
+         raise Exception(message)
+ 
++    # Load knowledge base if provided
++    kb_data = None
++    if kb_file:
++        try:
++            import json
++            with open(kb_file, 'r', encoding='utf-8') as f:
++                kb_data = json.load(f)
++            yield f"📚 Knowledge base loaded with {len(kb_data) if isinstance(kb_data, list) else len(kb_data.keys())} entries"
++        except Exception as e:
++            yield f"⚠️ Warning: Could not load knowledge base: {str(e)}"
++
+     generate_m4b_audiobook_file = False
+ 
+     if output_format == "M4B (Chapters & Cover)":
 diff --git a/utils/audiobook_utils.py b/utils/audiobook_utils.py
 index df8ac0b..5c935e2 100644
 --- a/utils/audiobook_utils.py
