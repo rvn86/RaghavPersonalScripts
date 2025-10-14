@@ -54,7 +54,7 @@ if ! $ONLY_ACTIVATE; then
 
     curl -LsSf https://astral.sh/uv/install.sh | sh
     apt-get update
-    apt-get install -y vim ffmpeg git
+    apt-get install -y vim ffmpeg git jq
 
     #############################################
     # Setup Orpheus-TTS-FastAPI

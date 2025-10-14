@@ -1,14 +1,14 @@
-From 4c7113fab393e60e3112cae39501031e76d6ef96 Mon Sep 17 00:00:00 2001
+From d733219f4b04c4303d46a2480f7f4b6ba84a697c Mon Sep 17 00:00:00 2001
 From: Raghav <ragha.nv@gmail.com>
 Date: Sat, 11 Oct 2025 16:27:17 -0700
 Subject: [PATCH] Add chapters
 
 ---
  app.py                            | 245 ++++++-----
- generate_audiobook.py             | 704 ++++++++++++++++--------------
- utils/add_emotion_tags_to_text.py | 245 +++++++----
+ generate_audiobook.py             | 701 ++++++++++++++++--------------
+ utils/add_emotion_tags_to_text.py | 392 +++++++++++++----
  utils/audiobook_utils.py          | 502 +++++++++++++--------
- 4 files changed, 996 insertions(+), 700 deletions(-)
+ 4 files changed, 1140 insertions(+), 700 deletions(-)
 
 diff --git a/app.py b/app.py
 index 8035285..ea893ff 100644
@@ -521,7 +521,7 @@ index 8035285..ea893ff 100644
 \ No newline at end of file
 +    uvicorn.run(app, host="0.0.0.0", port=7860)
 diff --git a/generate_audiobook.py b/generate_audiobook.py
-index 1711db2..bc71285 100755
+index 1711db2..5b138fc 100755
 --- a/generate_audiobook.py
 +++ b/generate_audiobook.py
 @@ -16,6 +16,7 @@ You should have received a copy of the GNU General Public License
@@ -668,7 +668,7 @@ index 1711db2..bc71285 100755
      except ValueError as e:
          return False, f"Book file validation error: {str(e)}", None
      except RuntimeError as e:
-@@ -207,7 +215,240 @@ def validate_book_for_m4b_generation(book_path):
+@@ -207,7 +215,237 @@ def validate_book_for_m4b_generation(book_path):
      except Exception as e:
          return False, f"Unexpected error during book validation: {str(e)}", None
  
@@ -685,10 +685,7 @@ index 1711db2..bc71285 100755
 +
 +    entities_in_chapter = extract_entities(chapter_text, kb.keys())
 +    filtered_kb = {name: kb[name] for name in entities_in_chapter}
-+    response, retries = await identify_entities(chapter_text, filtered_kb)
-+
-+    chapter_number = response.get("chapterNumber")
-+    entities_data = response.get("entities", {})
++    chapter_number, entities_data, retries = await identify_entities(chapter_text, filtered_kb)
 +
 +    # Build new partial knowledge base
 +    new_kb = {}
@@ -910,7 +907,7 @@ index 1711db2..bc71285 100755
      # Read the text from the file
      """
      Generate an audiobook using a single voice for narration and dialogues.
-@@ -228,15 +469,15 @@ async def generate_audio_with_single_voice(output_format, narrator_gender, gener
+@@ -228,15 +466,15 @@ async def generate_audio_with_single_voice(output_format, narrator_gender, gener
          str: Progress updates as the audiobook generation progresses through loading text, generating audio,
               organizing by chapters, assembling chapters, and post-processing steps.
      """
@@ -929,7 +926,7 @@ index 1711db2..bc71285 100755
          yield f"✅ Book validation successful! Title: {metadata.get('Title', 'Unknown')}, Author: {metadata.get('Author(s)', 'Unknown')}"
  
      # Check if emotion tags should be used and if they have been pre-applied
-@@ -247,20 +488,20 @@ async def generate_audio_with_single_voice(output_format, narrator_gender, gener
+@@ -247,20 +485,20 @@ async def generate_audio_with_single_voice(output_format, narrator_gender, gener
      else:
          with open("converted_book.txt", "r", encoding='utf-8') as f:
              text = f.read()
@@ -955,7 +952,7 @@ index 1711db2..bc71285 100755
          narrator_gender=narrator_gender
      )
  
-@@ -272,26 +513,21 @@ async def generate_audio_with_single_voice(output_format, narrator_gender, gener
+@@ -272,26 +510,21 @@ async def generate_audio_with_single_voice(output_format, narrator_gender, gener
  
      os.makedirs(temp_audio_dir, exist_ok=True)
      os.makedirs(temp_line_audio_dir, exist_ok=True)
@@ -987,7 +984,7 @@ index 1711db2..bc71285 100755
      async def process_single_line(line_index, line):
          async with semaphore:
              nonlocal progress_counter
-@@ -300,13 +536,13 @@ async def generate_audio_with_single_voice(output_format, narrator_gender, gener
+@@ -300,13 +533,13 @@ async def generate_audio_with_single_voice(output_format, narrator_gender, gener
                  progress_bar.update(1)
                  progress_counter += 1
                  return None
@@ -1004,7 +1001,7 @@ index 1711db2..bc71285 100755
              for part in annotated_parts:
                  text_to_speak = part["text"].strip()
  
-@@ -314,54 +550,54 @@ async def generate_audio_with_single_voice(output_format, narrator_gender, gener
+@@ -314,54 +547,54 @@ async def generate_audio_with_single_voice(output_format, narrator_gender, gener
                      continue
  
                  voice_to_speak_in = narrator_voice if part["type"] == "narration" else dialogue_voice
@@ -1071,7 +1068,7 @@ index 1711db2..bc71285 100755
              return {
                  "index": line_index,
                  "is_chapter_heading": check_if_chapter_heading(line),
-@@ -375,129 +611,36 @@ async def generate_audio_with_single_voice(output_format, narrator_gender, gener
+@@ -375,129 +608,36 @@ async def generate_audio_with_single_voice(output_format, narrator_gender, gener
          task = asyncio.create_task(process_single_line(i, line))
          tasks.append(task)
          task_to_index[task] = i
@@ -1157,7 +1154,7 @@ index 1711db2..bc71285 100755
 -        
 -        post_processing_bar.update(1)
 -        yield f"Added silence to chapter: {chapter_file}"
- 
+-
 -    m4a_chapter_files = []
 -
 -    # Convert all chapter files to M4A format
@@ -1174,7 +1171,7 @@ index 1711db2..bc71285 100755
 -    # Clean up temp line audio files
 -    shutil.rmtree(temp_line_audio_dir)
 -    yield "Cleaned up temporary files"
--
+ 
 -    if generate_m4b_audiobook_file:
 -        # Merge all chapter files into a final m4b audiobook
 -        yield "Creating M4B audiobook file..."
@@ -1220,7 +1217,7 @@ index 1711db2..bc71285 100755
      Returns:
          tuple: (success, json_data_array, message)
              - success (bool): True if emotion tags were successfully applied
-@@ -506,7 +649,7 @@ def apply_emotion_tags_to_multi_voice_data(json_data_array):
+@@ -506,7 +646,7 @@ def apply_emotion_tags_to_multi_voice_data(json_data_array):
      """
      if not os.path.exists("tag_added_lines_chunks.txt"):
          return False, json_data_array, "No pre-processed emotion tags found"
@@ -1229,7 +1226,7 @@ index 1711db2..bc71285 100755
      try:
          # Read the enhanced lines from tag_added_lines_chunks.txt
          with open("tag_added_lines_chunks.txt", "r", encoding='utf-8') as f:
-@@ -519,11 +662,11 @@ def apply_emotion_tags_to_multi_voice_data(json_data_array):
+@@ -519,11 +659,11 @@ def apply_emotion_tags_to_multi_voice_data(json_data_array):
              return True, json_data_array, "Successfully applied pre-processed emotion tags"
          else:
              return False, json_data_array, f"Line count mismatch: {len(enhanced_lines)} enhanced lines vs {len(json_data_array)} speaker-attributed lines"
@@ -1243,7 +1240,7 @@ index 1711db2..bc71285 100755
      # Path to the JSONL file containing speaker-attributed lines
      """
      Generate an audiobook in the specified format using multiple voices for each line
-@@ -546,17 +689,17 @@ async def generate_audio_with_multiple_voices(output_format, narrator_gender, ge
+@@ -546,17 +686,17 @@ async def generate_audio_with_multiple_voices(output_format, narrator_gender, ge
      :param book_path: The path to the book file (required for generating an M4B audiobook file)
      :param add_emotion_tags: Whether to use pre-applied emotion tags in the audiobook. Defaults to False.
      """
@@ -1265,7 +1262,7 @@ index 1711db2..bc71285 100755
      file_path = 'speaker_attributed_book.jsonl'
      json_data_array = []
  
-@@ -587,7 +730,7 @@ async def generate_audio_with_multiple_voices(output_format, narrator_gender, ge
+@@ -587,7 +727,7 @@ async def generate_audio_with_multiple_voices(output_format, narrator_gender, ge
              '<yawn>' in item.get('line', '') or '<gasp>' in item.get('line', '')
              for item in json_data_array
          )
@@ -1274,7 +1271,7 @@ index 1711db2..bc71285 100755
          if has_emotion_tags:
              yield "Removing existing emotion tags from JSONL data as per user preference"
              import re
-@@ -596,7 +739,7 @@ async def generate_audio_with_multiple_voices(output_format, narrator_gender, ge
+@@ -596,7 +736,7 @@ async def generate_audio_with_multiple_voices(output_format, narrator_gender, ge
                      # Remove emotion tags from the line
                      line_without_tags = re.sub(r'<(?:laugh|chuckle|sigh|cough|sniffle|groan|yawn|gasp)>\s*', '', item["line"])
                      item["line"] = line_without_tags
@@ -1283,7 +1280,7 @@ index 1711db2..bc71285 100755
      # Apply text preprocessing for Orpheus TTS to prevent repetition issues
      if TTS_MODEL.lower() == "orpheus":
          for item in json_data_array:
-@@ -610,7 +753,7 @@ async def generate_audio_with_multiple_voices(output_format, narrator_gender, ge
+@@ -610,7 +750,7 @@ async def generate_audio_with_multiple_voices(output_format, narrator_gender, ge
      # Get narrator voice using the new voice mapping system
      narrator_voice = find_voice_for_gender_score("narrator", character_gender_map, TTS_MODEL, narrator_gender)
      yield "Loaded voice mappings and selected narrator voice"
@@ -1292,7 +1289,7 @@ index 1711db2..bc71285 100755
      # Setup directories
      temp_audio_dir = "temp_audio"
      temp_line_audio_dir = os.path.join(temp_audio_dir, "line_segments")
-@@ -620,21 +763,17 @@ async def generate_audio_with_multiple_voices(output_format, narrator_gender, ge
+@@ -620,21 +760,17 @@ async def generate_audio_with_multiple_voices(output_format, narrator_gender, ge
      os.makedirs(temp_audio_dir, exist_ok=True)
      os.makedirs(temp_line_audio_dir, exist_ok=True)
      yield "Set up temporary directories for audio processing"
@@ -1318,7 +1315,7 @@ index 1711db2..bc71285 100755
      # For tracking progress with tqdm in an async context
      total_lines = len(json_data_array)
      progress_bar = tqdm(total=total_lines, unit="line", desc="Audio Generation Progress")
-@@ -654,13 +793,13 @@ async def generate_audio_with_multiple_voices(output_format, narrator_gender, ge
+@@ -654,13 +790,13 @@ async def generate_audio_with_multiple_voices(output_format, narrator_gender, ge
  
              speaker = doc["speaker"]
              speaker_voice = find_voice_for_gender_score(speaker, character_gender_map, TTS_MODEL, narrator_gender)
@@ -1335,7 +1332,7 @@ index 1711db2..bc71285 100755
              for part in annotated_parts:
                  text_to_speak = part["text"].strip()
  
-@@ -668,60 +807,60 @@ async def generate_audio_with_multiple_voices(output_format, narrator_gender, ge
+@@ -668,60 +804,60 @@ async def generate_audio_with_multiple_voices(output_format, narrator_gender, ge
                      continue
  
                  voice_to_speak_in = narrator_voice if part["type"] == "narration" else speaker_voice
@@ -1409,7 +1406,7 @@ index 1711db2..bc71285 100755
      # Create tasks and store them with their index for result collection
      tasks = []
      task_to_index = {}
-@@ -729,126 +868,41 @@ async def generate_audio_with_multiple_voices(output_format, narrator_gender, ge
+@@ -729,126 +865,41 @@ async def generate_audio_with_multiple_voices(output_format, narrator_gender, ge
          task = asyncio.create_task(process_single_line(i, doc))
          tasks.append(task)
          task_to_index[task] = i
@@ -1565,7 +1562,7 @@ index 1711db2..bc71285 100755
      generate_m4b_audiobook_file = False
  
      if output_format == "M4B (Chapters & Cover)":
-@@ -858,16 +912,16 @@ async def process_audiobook_generation(voice_option, narrator_gender, output_for
+@@ -858,16 +909,16 @@ async def process_audiobook_generation(voice_option, narrator_gender, output_for
          if voice_option == "Single Voice":
              yield "\n🎧 Generating audiobook with a **single voice**..."
              await asyncio.sleep(1)
@@ -1585,7 +1582,7 @@ index 1711db2..bc71285 100755
      except ValueError as e:
          # Handle validation errors specifically
          error_msg = str(e)
-@@ -910,7 +964,7 @@ async def main():
+@@ -910,7 +961,7 @@ async def main():
          if not is_calibre_installed:
              print("⚠️ Calibre is not installed. Please install it first and make sure **calibre** and **ebook-meta** commands are available in your PATH.")
              return
@@ -1594,7 +1591,7 @@ index 1711db2..bc71285 100755
          is_ffmpeg_installed = check_if_ffmpeg_is_installed()
  
          if not is_ffmpeg_installed:
-@@ -929,11 +983,11 @@ async def main():
+@@ -929,11 +980,11 @@ async def main():
              print(f"📂 Using book file: **{book_path}**")
  
          print("✅ Book path set. Proceeding...\n")
@@ -1608,7 +1605,7 @@ index 1711db2..bc71285 100755
          if not is_valid:
              print(f"❌ **Book validation failed**: {error_message}")
              print("\n💡 **Troubleshooting Tips:**")
-@@ -943,7 +997,7 @@ async def main():
+@@ -943,7 +994,7 @@ async def main():
              print("   • Make sure the book file is not corrupted")
              print("   • Ensure the book file contains extractable metadata and cover image")
              return
@@ -1617,7 +1614,7 @@ index 1711db2..bc71285 100755
          print(f"✅ **Book validation successful!**")
          print(f"   • Title: {metadata.get('Title', 'Unknown')}")
          print(f"   • Author: {metadata.get('Author(s)', 'Unknown')}")
-@@ -959,7 +1013,7 @@ async def main():
+@@ -959,7 +1010,7 @@ async def main():
          if(output_format not in ["aac", "m4a", "mp3", "wav", "opus", "flac", "pcm"]):
              print("\n⚠️ Invalid output format! Please choose from the give options")
              return
@@ -1626,7 +1623,7 @@ index 1711db2..bc71285 100755
      # Prompt user for narrator's gender selection
      print("\n🎙️ **Audiobook Narrator Voice Selection**")
      narrator_gender = input("🔹 Enter **male** if you want the book to be read in a male voice or **female** if you want the book to be read in a female voice: ").strip()
-@@ -975,7 +1029,7 @@ async def main():
+@@ -975,7 +1026,7 @@ async def main():
          print("🔹 Emotion tags add natural expressions like laughter, sighs, gasps to your audiobook")
          print("🔹 Available tags: <laugh>, <chuckle>, <sigh>, <cough>, <sniffle>, <groan>, <yawn>, <gasp>")
          emotion_tags_option = input("🔹 Do you want to use emotion tags in the audiobook? Enter **yes** or **no**: ").strip().lower()
@@ -1636,10 +1633,15 @@ index 1711db2..bc71285 100755
              add_emotion_tags = True
              print("✅ Emotion tags will be used in the audiobook!")
 diff --git a/utils/add_emotion_tags_to_text.py b/utils/add_emotion_tags_to_text.py
-index bed539e..07a8867 100644
+index bed539e..9d84508 100644
 --- a/utils/add_emotion_tags_to_text.py
 +++ b/utils/add_emotion_tags_to_text.py
-@@ -19,6 +19,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
+@@ -16,9 +16,12 @@ You should have received a copy of the GNU General Public License
+ along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ """
+ 
++import hashlib
++from datetime import datetime
  import json
  import os
  import asyncio
@@ -1647,7 +1649,7 @@ index bed539e..07a8867 100644
  import traceback
  from tqdm.asyncio import tqdm_asyncio # Use tqdm's async version for better updates
  from openai import AsyncOpenAI
-@@ -39,33 +40,33 @@ model_name = OPENAI_MODEL_NAME
+@@ -39,33 +42,33 @@ model_name = OPENAI_MODEL_NAME
  def fix_orphaned_tags_and_punctuation(text, original_text):
      """
      Fix orphaned emotion tags and punctuation issues while preserving line count.
@@ -1688,7 +1690,7 @@ index bed539e..07a8867 100644
                  # Try to move tag to previous line if it looks like dialogue
                  if i > 0 and i-1 < len(fixed_lines):
                      prev_line = fixed_lines[i-1]
-@@ -91,36 +92,36 @@ def fix_orphaned_tags_and_punctuation(text, original_text):
+@@ -91,36 +94,36 @@ def fix_orphaned_tags_and_punctuation(text, original_text):
                      # Remove tags but keep the line content to preserve line count
                      fixed_line = line_without_tags if line_without_tags else original_lines[i] if i < len(original_lines) else ""
                      print(f"Removed orphaned tag, preserved line content")
@@ -1733,7 +1735,7 @@ index bed539e..07a8867 100644
          # Check if dialogue ends with punctuation
          if dialogue_content and dialogue_content[-1] in '.!?,:;':
              # Insert tag before the punctuation
-@@ -128,79 +129,79 @@ def move_tag_to_dialogue(dialogue_line, emotion_tag):
+@@ -128,79 +131,79 @@ def move_tag_to_dialogue(dialogue_line, emotion_tag):
          else:
              # Add tag and punctuation at the end
              new_dialogue = dialogue_content + f" {emotion_tag}."
@@ -1830,7 +1832,7 @@ index bed539e..07a8867 100644
      Returns:
          dict: {
              'text': str,           # Validated text (cleaned or original)
-@@ -211,21 +212,21 @@ def postprocess_emotion_tags(enhanced_text, original_text):
+@@ -211,21 +214,21 @@ def postprocess_emotion_tags(enhanced_text, original_text):
      """
      # Define allowed emotion tags (official Orpheus TTS supported tags)
      ALLOWED_TAGS = {'<laugh>', '<chuckle>', '<sigh>', '<cough>', '<sniffle>', '<groan>', '<yawn>', '<gasp>'}
@@ -1857,7 +1859,7 @@ index bed539e..07a8867 100644
          if invalid_tags:
              if found_structural:
                  reason = f"Structural markup leaked from prompt: {found_structural}"
-@@ -238,18 +239,18 @@ def postprocess_emotion_tags(enhanced_text, original_text):
+@@ -238,18 +241,18 @@ def postprocess_emotion_tags(enhanced_text, original_text):
                  'reverted': True,
                  'reason': reason
              }
@@ -1880,7 +1882,7 @@ index bed539e..07a8867 100644
          if text_content_only != original_content_only:
              reason = f"Text content was modified beyond adding tags."
              print(f"Warning: {reason}. Reverting to original text.")
-@@ -259,13 +260,13 @@ def postprocess_emotion_tags(enhanced_text, original_text):
+@@ -259,13 +262,13 @@ def postprocess_emotion_tags(enhanced_text, original_text):
                  'reverted': True,
                  'reason': reason
              }
@@ -1896,7 +1898,7 @@ index bed539e..07a8867 100644
          if len(original_lines) != len(enhanced_lines):
              reason = f"Line structure changed ({len(original_lines)} -> {len(enhanced_lines)} lines)"
              print(f"Warning: {reason}. Reverting to original text.")
-@@ -275,9 +276,9 @@ def postprocess_emotion_tags(enhanced_text, original_text):
+@@ -275,9 +278,9 @@ def postprocess_emotion_tags(enhanced_text, original_text):
                  'reverted': True,
                  'reason': reason
              }
@@ -1908,7 +1910,7 @@ index bed539e..07a8867 100644
          # Check for malformed tags (missing < or >)
          malformed_tags = re.findall(r'<[^>]*$|^[^<]*>', cleaned_text)
          if malformed_tags:
-@@ -289,7 +290,7 @@ def postprocess_emotion_tags(enhanced_text, original_text):
+@@ -289,7 +292,7 @@ def postprocess_emotion_tags(enhanced_text, original_text):
                  'reverted': True,
                  'reason': reason
              }
@@ -1917,7 +1919,7 @@ index bed539e..07a8867 100644
          # Check for HTML entities that shouldn't be there
          if '&lt;' in cleaned_text or '&gt;' in cleaned_text:
              reason = "HTML entities found in emotion tags"
-@@ -300,7 +301,7 @@ def postprocess_emotion_tags(enhanced_text, original_text):
+@@ -300,7 +303,7 @@ def postprocess_emotion_tags(enhanced_text, original_text):
                  'reverted': True,
                  'reason': reason
              }
@@ -1926,7 +1928,7 @@ index bed539e..07a8867 100644
          # Check for tags breaking words (tag in the middle of a word)
          # Look for patterns like "wo<laugh>rd"
          word_breaking_pattern = r'\w<(?:laugh|chuckle|sigh|cough|sniffle|groan|yawn|gasp)>\w'
-@@ -313,7 +314,7 @@ def postprocess_emotion_tags(enhanced_text, original_text):
+@@ -313,7 +316,7 @@ def postprocess_emotion_tags(enhanced_text, original_text):
                  'reverted': True,
                  'reason': reason
              }
@@ -1935,7 +1937,7 @@ index bed539e..07a8867 100644
          # Check for excessive tag usage (more than 1 tag per 10 words as a safety check)
          word_count = len(original_text.split())
          tag_count = len(found_tags)
-@@ -326,7 +327,7 @@ def postprocess_emotion_tags(enhanced_text, original_text):
+@@ -326,7 +329,7 @@ def postprocess_emotion_tags(enhanced_text, original_text):
                  'reverted': True,
                  'reason': reason
              }
@@ -1944,7 +1946,7 @@ index bed539e..07a8867 100644
          # Check for duplicate consecutive tags
          consecutive_tags = re.search(r'<(?:laugh|chuckle|sigh|cough|sniffle|groan|yawn|gasp)>\s*<(?:laugh|chuckle|sigh|cough|sniffle|groan|yawn|gasp)>', cleaned_text)
          if consecutive_tags:
-@@ -338,13 +339,13 @@ def postprocess_emotion_tags(enhanced_text, original_text):
+@@ -338,13 +341,13 @@ def postprocess_emotion_tags(enhanced_text, original_text):
                  'reverted': True,
                  'reason': reason
              }
@@ -1960,7 +1962,7 @@ index bed539e..07a8867 100644
          # 7. Verify line count is preserved after fixing orphaned tags
          fixed_lines = cleaned_text.split('\n')
          if len(original_lines) != len(fixed_lines):
-@@ -356,7 +357,7 @@ def postprocess_emotion_tags(enhanced_text, original_text):
+@@ -356,7 +359,7 @@ def postprocess_emotion_tags(enhanced_text, original_text):
                  'reverted': True,
                  'reason': reason
              }
@@ -1969,7 +1971,7 @@ index bed539e..07a8867 100644
          # 8. Final check for remaining orphaned tags after fixes
          remaining_orphans = detect_remaining_orphaned_tags(cleaned_text)
          if remaining_orphans:
-@@ -368,7 +369,7 @@ def postprocess_emotion_tags(enhanced_text, original_text):
+@@ -368,7 +371,7 @@ def postprocess_emotion_tags(enhanced_text, original_text):
                  'reverted': True,
                  'reason': reason
              }
@@ -1978,7 +1980,7 @@ index bed539e..07a8867 100644
          # All validations passed
          return {
              'text': cleaned_text,
-@@ -376,7 +377,7 @@ def postprocess_emotion_tags(enhanced_text, original_text):
+@@ -376,7 +379,7 @@ def postprocess_emotion_tags(enhanced_text, original_text):
              'reverted': False,
              'reason': None
          }
@@ -1987,17 +1989,24 @@ index bed539e..07a8867 100644
      except Exception as e:
          reason = f"Exception in postprocessing: {str(e)}"
          print(f"Error in postprocessing emotion tags: {e}")
-@@ -387,6 +388,76 @@ def postprocess_emotion_tags(enhanced_text, original_text):
+@@ -387,6 +390,221 @@ def postprocess_emotion_tags(enhanced_text, original_text):
              'reason': reason
          }
  
 +async def identify_entities(chapter_text, filtered_kb, retries=5, backoff_factor=2, base_delay=1):
++
++    # Create unique directory for this call
++    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
++    text_hash = hashlib.sha1(chapter_text.encode("utf-8")).hexdigest()[:8]
++    session_dir = os.path.join("temp_prompt_responses", f"{timestamp}_{text_hash}")
++    os.makedirs(session_dir, exist_ok=True)
++
 +    combined_input = json.dumps({
 +        "chapterText": chapter_text,
 +        "knowledgeBase": filtered_kb
 +    })
 +
-+    system_prompt = (
++    extraction_system_prompt  = (
 +        "You are an advanced literary analysis assistant specialized in entity extraction. "
 +        "Your goal is to identify all entities in a text, including characters, places, organizations, objects, powers, possessions, events, periods, or concepts. "
 +        "Be extremely thorough and aim to identify at least 30 entities if possible. "
@@ -2008,7 +2017,7 @@ index bed539e..07a8867 100644
 +        "Use complete sentences for all descriptions, maintain consistent formatting, and include all detectable entities, even minor but meaningful ones."
 +    )
 +
-+    user_prompt = f"""
++    extraction_user_prompt = f"""
 +You are provided with the following chapter text and a knowledge base for reference:
 +
 +{combined_input}
@@ -2021,7 +2030,6 @@ index bed539e..07a8867 100644
 +        "<entity_name>": {{
 +            "type": <entity type>,
 +            "description": <detailed description including historical/contextual information>,
-+            "relationships": <related entities if applicable>
 +        }},
 +        ...
 +    }}
@@ -2029,42 +2037,181 @@ index bed539e..07a8867 100644
 +
 +Do not include any text outside the JSON.
 +"""
++    
++    def validate_entities(entities_data):
++        """Validate that all entities contain required fields."""
++        if not isinstance(entities_data, dict):
++            raise ValueError("Entities data must be a dictionary.")
 +
-+    last_exception = None
++        missing_fields = {}
++        for entity_name, entity_info in entities_data.items():
++            if not isinstance(entity_info, dict):
++                missing_fields[entity_name] = ["entity data not a dict"]
++                continue
 +
-+    for attempt in range(1, retries + 1):
-+        try:
-+            response = await openai_llm_client.chat.completions.create(
-+                model=model_name,
-+                messages=[
-+                    {"role": "system", "content": system_prompt},
-+                    {"role": "user", "content": user_prompt}
-+                ],
-+                temperature=0.2
-+            )
++            missing = []
++            for field in ["type", "description"]:
++                if field not in entity_info or not entity_info[field]:
++                    missing.append(field)
++            if missing:
++                missing_fields[entity_name] = missing
 +
-+            raw_response = response.choices[0].message.content.strip()
-+            cleaned_response = clean_thinking_tags(raw_response)
-+            return json.loads(cleaned_response), attempt - 1
++        if missing_fields:
++            raise ValueError(f"Entities missing required fields: {json.dumps(missing_fields, indent=2)}")
 +
-+        except Exception as e:
-+            last_exception = e
-+            print(f"Attempt {attempt}/{retries} failed: {e}")
-+            traceback.print_exc()
 +
-+            if attempt < retries:
-+                # Exponential backoff with jitter
-+                delay = base_delay * (backoff_factor ** (attempt - 1)) + random.uniform(0, 0.5)
-+                print(f"Retrying in {delay:.1f}s...")
-+                await asyncio.sleep(delay)
-+            else:
-+                print("All retries failed. Raising exception.")
-+                raise last_exception
++    async def call_llm_with_retries(
++        system_prompt,
++        user_prompt,
++        retries,
++        backoff_factor,
++        base_delay,
++        label="",
++        session_dir=None,
++        validate_func=None
++    ):
++        """
++        Generic retry wrapper for LLM calls with full I/O logging and optional validation.
++
++        Args:
++            system_prompt (str): The system prompt sent to the LLM.
++            user_prompt (str): The user content sent to the LLM.
++            retries (int): Number of retry attempts.
++            backoff_factor (int): Multiplier for exponential backoff.
++            base_delay (int): Base delay in seconds.
++            label (str): Label for naming files (e.g., 'extraction' or 'refinement').
++            session_dir (str): Directory where logs are saved.
++            validate_func (callable, optional): Function that takes parsed output and raises on validation failure.
++        """
++        last_exception = None
++
++        for attempt in range(1, retries + 1):
++            try:
++                # ---- Save input ----
++                input_path = os.path.join(session_dir, f"{label}_attempt{attempt}_input.json")
++                with open(input_path, "w", encoding="utf-8") as f:
++                    json.dump({
++                        "system_prompt": system_prompt,
++                        "user_prompt": user_prompt
++                    }, f, ensure_ascii=False, indent=2)
++
++                # ---- LLM call ----
++                response = await openai_llm_client.chat.completions.create(
++                    model=model_name,
++                    messages=[
++                        {"role": "system", "content": system_prompt},
++                        {"role": "user", "content": user_prompt}
++                    ],
++                    temperature=0.2
++                )
++
++                raw_response = response.choices[0].message.content.strip()
++
++                # ---- Save raw response ----
++                raw_path = os.path.join(session_dir, f"{label}_attempt{attempt}_raw.txt")
++                with open(raw_path, "w", encoding="utf-8") as f:
++                    f.write(raw_response)
++
++                # ---- Parse JSON ----
++                cleaned = clean_thinking_tags(raw_response)
++                parsed = json.loads(cleaned)
++
++                # ---- Save parsed output ----
++                parsed_path = os.path.join(session_dir, f"{label}_attempt{attempt}_parsed.json")
++                with open(parsed_path, "w", encoding="utf-8") as f:
++                    json.dump(parsed, f, ensure_ascii=False, indent=2)
++
++                # ---- Optional validation ----
++                if validate_func is not None:
++                    try:
++                        validate_func(parsed)
++                    except Exception as ve:
++                        # Log validation error and re-raise to trigger retry
++                        validation_log = os.path.join(session_dir, f"{label}_attempt{attempt}_validation_error.txt")
++                        with open(validation_log, "w", encoding="utf-8") as vf:
++                            vf.write(str(ve))
++                        raise ve  # trigger retry
++
++                return parsed, attempt - 1  # success → parsed result and retries used
++
++            except Exception as e:
++                last_exception = e
++                print(f"Attempt {attempt}/{retries} failed: {e}")
++                traceback.print_exc()
++                if attempt < retries:
++                    delay = base_delay * (backoff_factor ** (attempt - 1)) + random.uniform(0, 0.5)
++                    print(f"Retrying in {delay:.1f}s...")
++                    await asyncio.sleep(delay)
++                else:
++                    raise last_exception
++
++     # ---- Call 1: Entity extraction ----
++    extraction_result, extraction_retries = await call_llm_with_retries(
++        extraction_system_prompt, extraction_user_prompt, retries, backoff_factor, base_delay, label="extraction", session_dir=session_dir
++    )
++
++    chapter_number = extraction_result.get("chapterNumber")
++    entities_data = extraction_result.get("entities", {})
++
++    # ----------- SECOND CALL: Entity Refinement -----------
++    refinement_system_prompt = (
++        "You are an expert in literary entity refinement. "
++        "You will receive a JSON object of extracted entities from a book. "
++        "Your task is to carefully review the list and remove any entities that are trivial, overly generic, "
++        "or non-specific to the book's fictional world. "
++        "Examples of entities to remove include common natural objects (like 'tree', 'stone', 'sky'), "
++        "generic materials ('cloth', 'metal'), or everyday nouns that are not symbolically or contextually significant. "
++        "Do not remove entities that play a thematic, symbolic, or narrative role. "
++        "Your goal is to preserve only meaningful, story-specific entities that add depth to the book's universe. "
++        "The final output must be valid JSON — no commentary, explanations, or extra text outside the JSON."
++    )
++
++    refinement_user_prompt = f"""
++You are provided with a JSON object representing entities extracted from a book chapter.
++
++Review these entities and remove any that are trivial, generic, or unrelated to the specific world or context of the book.
++
++Keep only entities that are meaningful, unique, or relevant to the story, its characters, themes, or world-building.
++
++Here are the entities to refine:
++{json.dumps(entities_data, ensure_ascii=False, indent=2)}
++
++Do not add new entites not in the input above. You must only return valid JSON. Do not write any explanations, reasoning, or notes.
++Even if you remove an entity, do not comment on it. Only output the final JSON.
++Return the refined JSON in this exact structure:
++
++{{
++    "entities": {{
++        "<entity_name>": {{
++            "type": "<entity type>",
++            "description": "<detailed description including historical/contextual information>"
++        }},
++        ...
++    }}
++}}
++"""
++
++    refinement_result, refinement_retries = await call_llm_with_retries(
++        refinement_system_prompt,
++        refinement_user_prompt,
++        retries,
++        backoff_factor,
++        base_delay,
++        label="refinement",
++        session_dir=session_dir,
++        validate_func=lambda data: validate_entities(data.get("entities", data))
++    )
++
++    refined_entities = refinement_result.get("entities", refinement_result)
++
++    # ----------- FINAL OUTPUT -----------
++    total_retries = extraction_retries + refinement_retries
++    return chapter_number, refined_entities, total_retries
 +
  # Consider adding @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
  async def enhance_text_with_emotions(text_segment):
      """Process a text segment, adding emotion tags."""
-@@ -473,14 +544,14 @@ You are an expert editor specializing in preparing book scripts for Text-to-Spee
+@@ -473,14 +691,14 @@ You are an expert editor specializing in preparing book scripts for Text-to-Spee
  
  **Line Break Preservation Examples:**
  
@@ -2081,7 +2228,7 @@ index bed539e..07a8867 100644
  ```
  "Hello there," she said.
  
-@@ -488,18 +559,18 @@ He `<sigh>` sighed deeply.
+@@ -488,18 +706,18 @@ He `<sigh>` sighed deeply.
  "I don't know what to do."
  ```
  
@@ -2104,7 +2251,7 @@ index bed539e..07a8867 100644
      There was no response.
  ```
  
-@@ -560,16 +631,16 @@ def create_chunks(text, chunk_size_lines=5):
+@@ -560,16 +778,16 @@ def create_chunks(text, chunk_size_lines=5):
  async def process_chunk_line_by_line(chunk):
      """
      Fallback function to process a chunk line by line when chunk-based processing fails.
@@ -2124,7 +2271,7 @@ index bed539e..07a8867 100644
      for line in lines:
          if line.strip():  # Only process non-empty lines
              try:
-@@ -582,7 +653,7 @@ async def process_chunk_line_by_line(chunk):
+@@ -582,7 +800,7 @@ async def process_chunk_line_by_line(chunk):
          else:
              # Preserve empty lines exactly
              processed_lines.append(line)
@@ -2133,7 +2280,7 @@ index bed539e..07a8867 100644
      return '\n'.join(processed_lines)
  
  async def add_tags_to_text_chunks(text_to_process):
-@@ -592,7 +663,7 @@ async def add_tags_to_text_chunks(text_to_process):
+@@ -592,7 +810,7 @@ async def add_tags_to_text_chunks(text_to_process):
      lines = text_to_process.split('\n')
      non_empty_lines = [line for line in lines if line.strip()]  # Only keep non-empty lines
      filtered_text = '\n'.join(non_empty_lines)
@@ -2142,7 +2289,7 @@ index bed539e..07a8867 100644
      yield f"Filtered text to match JSONL processing: {len(lines)} -> {len(non_empty_lines)} lines"
  
      # use a line-based chunker like the helper function above
-@@ -610,7 +681,7 @@ async def add_tags_to_text_chunks(text_to_process):
+@@ -610,7 +828,7 @@ async def add_tags_to_text_chunks(text_to_process):
              # Try chunk-based processing first
              enhancement_result = await enhance_text_with_emotions(chunk)
              final_result = enhancement_result['text']
@@ -2151,7 +2298,7 @@ index bed539e..07a8867 100644
              # Check if postprocessing failed and we need fallback
              if enhancement_result['reverted'] and enhancement_result['reason']:
                  print(f"Chunk {chunk_index}: Chunk processing failed ({enhancement_result['reason']})")
-@@ -620,7 +691,7 @@ async def add_tags_to_text_chunks(text_to_process):
+@@ -620,7 +838,7 @@ async def add_tags_to_text_chunks(text_to_process):
                  except Exception as e:
                      print(f"Chunk {chunk_index}: Line-by-line fallback also failed: {e}")
                      final_result = chunk  # Use original chunk if both methods fail
@@ -2160,7 +2307,7 @@ index bed539e..07a8867 100644
              progress_counter += 1
              return {
                  "index": chunk_index,
-@@ -629,7 +700,7 @@ async def add_tags_to_text_chunks(text_to_process):
+@@ -629,7 +847,7 @@ async def add_tags_to_text_chunks(text_to_process):
              }
  
      yield f"Processing {total_chunks} chunks for emotion tags (max {LLM_MAX_PARALLEL_REQUESTS_BATCH_SIZE} concurrent)..."
@@ -2169,7 +2316,7 @@ index bed539e..07a8867 100644
      # Create tasks with chunk indices
      tasks = []
      for i, chunk in enumerate(chunks):
-@@ -637,17 +708,17 @@ async def add_tags_to_text_chunks(text_to_process):
+@@ -637,17 +855,17 @@ async def add_tags_to_text_chunks(text_to_process):
  
      # Process tasks and yield progress updates as they complete
      results = [None] * total_chunks  # Pre-allocate to maintain order
@@ -2191,7 +2338,7 @@ index bed539e..07a8867 100644
      yield f"Completed processing all {total_chunks} emotion tag chunks"
  
      # Reassemble the book, respecting the original chunk separation
-@@ -655,7 +726,7 @@ async def add_tags_to_text_chunks(text_to_process):
+@@ -655,7 +873,7 @@ async def add_tags_to_text_chunks(text_to_process):
  
      # Validate that line count is preserved (using filtered text for comparison)
      enhanced_lines = enhanced_text.split('\n')
@@ -2200,7 +2347,7 @@ index bed539e..07a8867 100644
      if len(non_empty_lines) != len(enhanced_lines):
          error_msg = f"ERROR: Line count mismatch after emotion processing! Filtered: {len(non_empty_lines)}, Enhanced: {len(enhanced_lines)}"
          yield error_msg
-@@ -676,38 +747,38 @@ async def add_tags_to_text_chunks(text_to_process):
+@@ -676,38 +894,38 @@ async def add_tags_to_text_chunks(text_to_process):
  async def process_emotion_tags_for_jsonl_data(json_data_array):
      """
      Efficiently process emotion tags for JSONL data using optimized chunk processing.
@@ -2248,7 +2395,7 @@ index bed539e..07a8867 100644
      # Use the optimized add_tags_to_text_chunks function and yield its progress
  
      async for progress in add_tags_to_text_chunks(combined_text):
-@@ -716,20 +787,20 @@ async def process_emotion_tags_for_jsonl_data(json_data_array):
+@@ -716,20 +934,20 @@ async def process_emotion_tags_for_jsonl_data(json_data_array):
      enhanced_text = None
      with open("tag_added_lines_chunks.txt", "r") as f:
          enhanced_text = f.read()
