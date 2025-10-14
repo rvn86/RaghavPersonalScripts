@@ -1,16 +1,16 @@
-From e330b0abe50d04acc87150425f65dc00b0f66e21 Mon Sep 17 00:00:00 2001
+From 30a1423b9894ee1cdac0074faf80d81e0270e0ff Mon Sep 17 00:00:00 2001
 From: Raghav <ragha.nv@gmail.com>
 Date: Sat, 11 Oct 2025 16:27:17 -0700
 Subject: [PATCH] Add chapters
 
 ---
- app.py                   |  45 +++-
- generate_audiobook.py    | 432 ++++++++++++++++++---------------------
- utils/audiobook_utils.py | 188 +++++++++++++----
- 3 files changed, 391 insertions(+), 274 deletions(-)
+ app.py                   | 195 +++++++------
+ generate_audiobook.py    | 606 +++++++++++++++++++--------------------
+ utils/audiobook_utils.py | 188 +++++++++---
+ 3 files changed, 553 insertions(+), 436 deletions(-)
 
 diff --git a/app.py b/app.py
-index 8035285..86b78e9 100644
+index 8035285..5c388cf 100644
 --- a/app.py
 +++ b/app.py
 @@ -19,6 +19,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
@@ -21,23 +21,31 @@ index 8035285..86b78e9 100644
  from fastapi import FastAPI
  from book_to_txt import process_book_and_extract_text, save_book
  from identify_characters_and_output_book_to_jsonl import process_book_and_identify_characters
-@@ -44,6 +45,25 @@ def validate_book_upload(book_file, book_title):
-     
+@@ -38,25 +39,44 @@ def validate_book_upload(book_file, book_title):
+     """Validate book upload and return a notification"""
+     if book_file is None:
+         return gr.Warning("Please upload a book file first.")
+-    
++
+     if not book_title:
+         return gr.Warning("Please enter a book title.")
+-    
++
      return gr.Info(f"Book '{book_title}' ready for processing.", duration=5)
  
 +def validate_knowledge_base(kb_file):
 +    """Validate knowledge base JSON file and return a notification"""
 +    if kb_file is None:
 +        return gr.Info("No knowledge base provided. Character identification will use default method.", duration=5)
-+    
++
 +    try:
 +        with open(kb_file, 'r', encoding='utf-8') as f:
 +            kb_data = json.load(f)
-+        
++
 +        # Basic validation - check if it's a valid JSON structure
 +        if not isinstance(kb_data, (dict, list)):
 +            return gr.Warning("Knowledge base must be a JSON object or array.")
-+        
++
 +        return gr.Info(f"Knowledge base loaded successfully! ({len(kb_data) if isinstance(kb_data, list) else len(kb_data.keys())} entries)", duration=5)
 +    except json.JSONDecodeError as e:
 +        return gr.Warning(f"Invalid JSON format in knowledge base: {str(e)}")
@@ -47,6 +55,52 @@ index 8035285..86b78e9 100644
  def text_extraction_wrapper(book_file, text_decoding_option, book_title):
      """Wrapper for text extraction with validation and progress updates"""
      if book_file is None or not book_title:
+         yield None
+         return gr.Warning("Please upload a book file and enter a title first.")
+-    
++
+     try:
+         last_output = None
+         # Pass through all yield values from the original function
+         for output in process_book_and_extract_text(book_file, text_decoding_option):
+             last_output = output
+             yield output  # Yield each progress update
+-        
++
+         # Final yield with success notification
+         yield last_output
+         return gr.Info("Text extracted successfully! You can now edit the content.", duration=5)
+@@ -76,10 +96,10 @@ def save_book_wrapper(text_content, book_title):
+     """Wrapper for saving book with validation"""
+     if not text_content:
+         return gr.Warning("No text content to save.")
+-    
++
+     if not book_title:
+         return gr.Warning("Please enter a book title before saving.")
+-    
++
+     try:
+         save_book(text_content)
+         return gr.Info("📖 Book saved successfully as 'converted_book.txt'!", duration=10)
+@@ -101,7 +121,7 @@ async def identify_characters_wrapper(book_title):
+         async for output in process_book_and_identify_characters(book_title):
+             last_output = output
+             yield output  # Yield each progress update
+-        
++
+         # Final yield with success notification
+         yield gr.Info("Character identification complete! You can now add emotion tags or proceed to audiobook generation.", duration=5)
+         yield last_output
+@@ -129,7 +149,7 @@ async def add_emotion_tags_wrapper():
+         async for output in process_emotion_tags():
+             last_output = output
+             yield output
+-        
++
+         # Final yield with success notification
+         yield gr.Info("Emotion tags added successfully! You can now generate the audiobook.", duration=5)
+         yield last_output
 @@ -141,7 +161,7 @@ async def add_emotion_tags_wrapper():
          yield None
          return
@@ -56,7 +110,38 @@ index 8035285..86b78e9 100644
      """Wrapper for audiobook generation with validation and progress updates"""
      if book_file is None:
          yield gr.Warning("Please upload a book file first."), None
-@@ -176,7 +196,7 @@ async def generate_audiobook_wrapper(voice_type, narrator_gender, output_format,
+@@ -151,42 +171,42 @@ async def generate_audiobook_wrapper(voice_type, narrator_gender, output_format,
+         yield gr.Warning("Please select voice type and output format."), None
+         yield None, None
+         return
+-    
++
+     # Early validation for M4B format
+     if output_format == "M4B (Chapters & Cover)":
+         yield gr.Info("Validating book file for M4B audiobook generation..."), None
+         is_valid, error_message, metadata = validate_book_for_m4b_generation(book_file)
+-        
++
+         if not is_valid:
+             yield gr.Warning(f"❌ Book validation failed: {error_message}"), None
+             yield None, None
+             return
+-            
++
+         yield gr.Info(f"✅ Book validation successful! Title: {metadata.get('Title', 'Unknown')}, Author: {metadata.get('Author(s)', 'Unknown')}"), None
+-    
++
+     # Use session state to determine if emotion tags should be used
+     add_emotion_tags = emotion_tags_processed_state
+-    
++
+     if add_emotion_tags:
+         yield gr.Info("🎭 Using emotion tags (processed in current session)"), None
+     else:
+         yield gr.Info("📖 Using standard narration"), None
+-    
++
+     try:
          last_output = None
          audiobook_path = None
          # Pass through all yield values from the original function
@@ -64,50 +149,323 @@ index 8035285..86b78e9 100644
 +        async for output in process_audiobook_generation(voice_type, narrator_gender, output_format, book_file, add_emotion_tags, kb_file):
              last_output = output
              yield output, None  # Yield each progress update without file path
-         
-@@ -320,6 +340,15 @@ with gr.Blocks(css=css, theme=gr.themes.Default()) as gradio_app:
+-        
++
+         # Get the correct file extension based on the output format
+         generate_m4b_audiobook_file = True if output_format == "M4B (Chapters & Cover)" else False
+         file_extension = "m4b" if generate_m4b_audiobook_file else output_format.lower()
+-        
++
+         # Set the audiobook file path according to the provided information
+         audiobook_path = os.path.join("generated_audiobooks", f"audiobook.{file_extension}")
+-        
++
+         # Final yield with success notification and file path
+         yield gr.Info(f"Audiobook generated successfully in {output_format} format! You can now download it in the Download section. Click on the blue download link next to the file name.", duration=10), None
+         yield last_output, audiobook_path
+@@ -206,80 +226,80 @@ def update_emotion_tags_status_and_state():
+ with gr.Blocks(css=css, theme=gr.themes.Default()) as gradio_app:
+     gr.Markdown("# 📖 Audiobook Creator")
+     gr.Markdown("Create professional audiobooks from your ebooks in just a few steps.")
+-    
++
+     # Session state to track if emotion tags were processed
+     emotion_tags_processed = gr.State(False)
+-    
++
+     # Get TTS configuration from environment variables
+     current_tts_engine = os.environ.get("TTS_MODEL", "kokoro").lower()
+     tts_base_url = os.environ.get("TTS_BASE_URL", "Not configured")
+-    
++
+     with gr.Row():
+         with gr.Column(scale=1):
+             gr.Markdown('<div class="step-heading">📚 Step 1: Book Details</div>')
+-            
++
+             book_title = gr.Textbox(
+-                label="Book Title", 
++                label="Book Title",
+                 placeholder="Enter the title of your book",
+                 info="This will be used for finding the protagonist of the book in the character identification step"
+             )
+-            
++
+             book_input = gr.File(
+                 label="Upload Book"
+             )
+-            
++
+             text_decoding_option = gr.Radio(
+-                ["textract", "calibre"], 
+-                label="Text Extraction Method", 
++                ["textract", "calibre"],
++                label="Text Extraction Method",
+                 value="textract",
+                 info="Use calibre for better formatted results, wider compatibility for ebook formats. You can try both methods and choose based on the output result."
+             )
+-            
++
+             validate_btn = gr.Button("Validate Book", variant="primary")
+ 
+     with gr.Row():
+         with gr.Column():
+             gr.Markdown('<div class="step-heading">✂️ Step 2: Extract & Edit Content</div>')
+-            
++
+             convert_btn = gr.Button("Extract Text", variant="primary")
+-            
++
+             with gr.Accordion("Editing Tips", open=True):
+                 gr.Markdown("""
+                 * Remove unwanted sections: Table of Contents, About the Author, Acknowledgements
+                 * Fix formatting issues or OCR errors
+                 * Check for chapter breaks and paragraph formatting
+                 """)
+-            
++
+             # Navigation buttons for the textbox
+             with gr.Row():
+                 top_btn = gr.Button("↑ Go to Top", size="sm", variant="secondary")
+                 bottom_btn = gr.Button("↓ Go to Bottom", size="sm", variant="secondary")
+-            
++
+             text_output = gr.Textbox(
+-                label="Edit Book Content", 
++                label="Edit Book Content",
+                 placeholder="Extracted text will appear here for editing",
+-                interactive=True, 
++                interactive=True,
+                 lines=15,
+                 elem_id="text_editor"
+             )
+-            
++
+             save_btn = gr.Button("Save Edited Text", variant="primary")
+ 
+     with gr.Row():
+         with gr.Column():
+             gr.Markdown('<div class="step-heading">🧩 Step 3: Character Identification (Optional - Requires LLM)</div>')
+-            
++
+             identify_btn = gr.Button("Identify Characters", variant="primary")
+-            
++
+             with gr.Accordion("Why Identify Characters?", open=True):
+                 gr.Markdown("""
+                 * Improves multi-voice narration by assigning different voices to characters
+                 * Creates more engaging audiobooks with distinct character voices
+                 * Skip this step if you prefer single-voice narration
+                 """)
+-                
++
+             character_output = gr.Textbox(
+-                label="Character Identification Progress", 
++                label="Character Identification Progress",
+                 placeholder="Character identification progress will be shown here",
+                 interactive=False,
+                 lines=3
+@@ -290,9 +310,9 @@ with gr.Blocks(css=css, theme=gr.themes.Default()) as gradio_app:
+     with gr.Row(visible=emotion_tags_visible):
+         with gr.Column():
+             gr.Markdown('<div class="step-heading">🎭 Step 3.5: Add Emotion Tags (Optional - Requires LLM)</div>')
+-            
++
+             emotion_tags_btn = gr.Button("Add Emotion Tags", variant="primary")
+-            
++
+             with gr.Accordion("What are Emotion Tags?", open=True):
+                 gr.Markdown("""
+                 **Emotion Tags enhance your audiobook by adding natural expressions:**
+@@ -305,12 +325,12 @@ with gr.Blocks(css=css, theme=gr.themes.Default()) as gradio_app:
+                 * **`<groan>`** - For groaning sounds expressing discomfort/frustration
+                 * **`<yawn>`** - For yawning or expressions of tiredness
+                 * **`<gasp>`** - For gasping sounds of surprise/shock
+-                
++
+                 These tags are automatically placed based on the text context and work only with **Orpheus TTS**.
+                 """)
+-                
++
+             emotion_tags_output = gr.Textbox(
+-                label="Emotion Tags Processing Progress", 
++                label="Emotion Tags Processing Progress",
+                 placeholder="Emotion tags processing progress will be shown here",
+                 interactive=False,
+                 lines=3
+@@ -319,39 +339,48 @@ with gr.Blocks(css=css, theme=gr.themes.Default()) as gradio_app:
+     with gr.Row():
          with gr.Column():
              gr.Markdown('<div class="step-heading">🎧 Step 4: Generate Audiobook</div>')
-             
+-            
++
 +            # Knowledge base file input
 +            kb_input = gr.File(
 +                label="Knowledge Base (Optional)",
 +                file_types=[".json", ".txt"],
 +                info="Upload a JSON knowledge base file to enhance audiobook generation. This can contain character information, relationships, or other contextual data."
 +            )
-+            
++
 +            validate_kb_btn = gr.Button("Validate Knowledge Base", variant="secondary", size="sm")
-+            
++
              with gr.Row():
                  voice_type = gr.Radio(
-                     ["Single Voice", "Multi-Voice"], 
-@@ -345,7 +374,7 @@ with gr.Blocks(css=css, theme=gr.themes.Default()) as gradio_app:
+-                    ["Single Voice", "Multi-Voice"], 
++                    ["Single Voice", "Multi-Voice"],
+                     label="Narration Type",
+                     value="Single Voice",
+                     info="Multi-Voice requires character identification"
+                 )
+ 
+                 narrator_gender = gr.Radio(
+-                    ["male", "female"], 
++                    ["male", "female"],
+                     label="Choose whether you want the book to be read in a male or female voice",
+                     value="female"
+                 )
+-                
++
+                 tts_engine_display = gr.Radio(
+-                    ["kokoro", "orpheus"], 
++                    ["kokoro", "orpheus"],
+                     label="TTS Engine",
+                     value=current_tts_engine,
+                     interactive=False,
+                     info="Configure TTS engine in .env file. Orpheus supports emotion tags."
+                 )
+-                
++
                  output_format = gr.Dropdown(
-                     ["M4B (Chapters & Cover)", "AAC", "M4A", "MP3", "WAV", "OPUS", "FLAC", "PCM"], 
+-                    ["M4B (Chapters & Cover)", "AAC", "M4A", "MP3", "WAV", "OPUS", "FLAC", "PCM"], 
++                    ["M4B (Chapters & Cover)", "AAC", "M4A", "MP3", "WAV", "OPUS", "FLAC", "PCM"],
                      label="Output Format",
 -                    value="M4B (Chapters & Cover)",
 +                    value="M4A",
                      info="M4B supports chapters and cover art"
                  )
-             
-@@ -419,10 +448,16 @@ with gr.Blocks(css=css, theme=gr.themes.Default()) as gradio_app:
+-            
++
+             # Emotion tags status display (conditional visibility based on TTS engine in .env)
+             emotion_tags_visible = current_tts_engine == "orpheus"
+-            
++
+             with gr.Group(visible=emotion_tags_visible) as emotion_tags_group:
+                 emotion_tags_status_display = gr.Radio(
+                     choices=["✅ Emotion tags processed - will be used in audiobook", "❌ No emotion tags - standard narration will be used"],
+@@ -360,16 +389,16 @@ with gr.Blocks(css=css, theme=gr.themes.Default()) as gradio_app:
+                     interactive=False,
+                     info="This will update automatically when you process emotion tags in Step 3.5"
+                 )
+-            
++
+             generate_btn = gr.Button("Generate Audiobook", variant="primary")
+-            
++
+             audio_output = gr.Textbox(
+-                label="Generation Progress", 
++                label="Generation Progress",
+                 placeholder="Generation progress will be shown here",
+                 interactive=False,
+                 lines=3
+             )
+-            
++
+             # Add a new File component for downloading the audiobook
+             with gr.Group(visible=False) as download_box:
+                 gr.Markdown("### 📥 Download Your Audiobook")
+@@ -378,38 +407,38 @@ with gr.Blocks(css=css, theme=gr.themes.Default()) as gradio_app:
+                     interactive=False,
+                     type="filepath"
+                 )
+-    
++
+     # Connections with proper handling of Gradio notifications
+     validate_btn.click(
+-        validate_book_upload, 
+-        inputs=[book_input, book_title], 
++        validate_book_upload,
++        inputs=[book_input, book_title],
+         outputs=[]
+     )
+-    
++
+     convert_btn.click(
+-        text_extraction_wrapper, 
+-        inputs=[book_input, text_decoding_option, book_title], 
++        text_extraction_wrapper,
++        inputs=[book_input, text_decoding_option, book_title],
+         outputs=[text_output],
+         queue=True
+     )
+-    
++
+     save_btn.click(
+-        save_book_wrapper, 
+-        inputs=[text_output, book_title], 
++        save_book_wrapper,
++        inputs=[text_output, book_title],
+         outputs=[],
+         queue=True
+     )
+-    
++
+     identify_btn.click(
+-        identify_characters_wrapper, 
+-        inputs=[book_title], 
++        identify_characters_wrapper,
++        inputs=[book_title],
+         outputs=[character_output],
+         queue=True
+     )
+-    
++
+     emotion_tags_btn.click(
+-        add_emotion_tags_wrapper, 
+-        inputs=[], 
++        add_emotion_tags_wrapper,
++        inputs=[],
+         outputs=[emotion_tags_output],
+         queue=True
+     ).then(
+@@ -418,11 +447,17 @@ with gr.Blocks(css=css, theme=gr.themes.Default()) as gradio_app:
+         inputs=[],
          outputs=[emotion_tags_status_display, emotion_tags_processed]
      )
-     
+-    
++
 +    validate_kb_btn.click(
 +        validate_knowledge_base,
 +        inputs=[kb_input],
 +        outputs=[]
 +    )
-+    
++
      # Update the generate_audiobook_wrapper to output both progress text and file path
      generate_btn.click(
-         generate_audiobook_wrapper, 
+-        generate_audiobook_wrapper, 
 -        inputs=[voice_type, narrator_gender, output_format, book_input, emotion_tags_processed], 
-+        inputs=[voice_type, narrator_gender, output_format, book_input, emotion_tags_processed, kb_input], 
++        generate_audiobook_wrapper,
++        inputs=[voice_type, narrator_gender, output_format, book_input, emotion_tags_processed, kb_input],
          outputs=[audio_output, audiobook_file],
          queue=True
      ).then(
+@@ -431,7 +466,7 @@ with gr.Blocks(css=css, theme=gr.themes.Default()) as gradio_app:
+         inputs=[audiobook_file],
+         outputs=[download_box]
+     )
+-    
++
+     # Navigation button functionality for textbox scrolling
+     top_btn.click(
+         None,
+@@ -446,7 +481,7 @@ with gr.Blocks(css=css, theme=gr.themes.Default()) as gradio_app:
+         }
+         """
+     )
+-    
++
+     bottom_btn.click(
+         None,
+         inputs=[],
 @@ -465,4 +500,4 @@ app = gr.mount_gradio_app(app, gradio_app, path="/")  # Mount Gradio at root
  
  if __name__ == "__main__":
@@ -116,7 +474,7 @@ index 8035285..86b78e9 100644
 \ No newline at end of file
 +    uvicorn.run(app, host="0.0.0.0", port=7860)
 diff --git a/generate_audiobook.py b/generate_audiobook.py
-index 1711db2..7162cfe 100755
+index 1711db2..ea0c87b 100755
 --- a/generate_audiobook.py
 +++ b/generate_audiobook.py
 @@ -16,6 +16,7 @@ You should have received a copy of the GNU General Public License
@@ -127,7 +485,7 @@ index 1711db2..7162cfe 100755
  import shutil
  from openai import OpenAI, AsyncOpenAI
  from tqdm import tqdm
-@@ -56,10 +57,16 @@ def sanitize_filename(text):
+@@ -56,39 +57,45 @@ def sanitize_filename(text):
      text = text.replace("'", '').replace('"', '').replace('/', ' ').replace('.', ' ')
      text = text.replace(':', '').replace('?', '').replace('\\', '').replace('|', '')
      text = text.replace('*', '').replace('<', '').replace('>', '').replace('&', 'and')
@@ -148,6 +506,113 @@ index 1711db2..7162cfe 100755
      return text
  
  def is_only_punctuation(text):
+     """
+     Check if a line contains only punctuation marks without any actual words.
+     This helps avoid TTS errors when encountering lines with just punctuation.
+-    
++
+     Args:
+         text (str): The text line to check
+-        
++
+     Returns:
+         bool: True if the line contains only punctuation, False otherwise
+     """
+     # Remove all whitespace
+     cleaned_text = text.strip()
+-    
++
+     # If empty after stripping, it's not useful for TTS
+     if not cleaned_text:
+         return True
+-    
++
+     # Import string for standard punctuation
+     import string
+-    
++
+     # Extended punctuation set including common Unicode punctuation in books
+     extended_punctuation = string.punctuation + '—–""''…‚„‹›«»‰‱'
+-    
++
+     # Remove all punctuation marks (both ASCII and extended Unicode)
+     text_without_punct = ''.join(char for char in cleaned_text if char not in extended_punctuation)
+-    
++
+     # If nothing remains after removing punctuation, it's only punctuation
+     return len(text_without_punct.strip()) == 0
+ 
+@@ -130,13 +137,13 @@ def check_if_chapter_heading(text):
+         except ValueError:
+             return False  # Invalid number format
+     return False  # No match
+-    
++
+ def find_voice_for_gender_score(character: str, character_gender_map, engine_name: str, narrator_gender: str):
+     """
+     Finds the appropriate voice for a character based on their gender score using the new voice mapping system.
+ 
+     This function takes in the name of a character, a dictionary mapping character names to their gender scores,
+-    the TTS engine name, and the narrator gender preference. It returns the voice identifier that matches 
++    the TTS engine name, and the narrator gender preference. It returns the voice identifier that matches
+     the character's gender score within the appropriate score map (male_score_map or female_score_map).
+ 
+     Args:
+@@ -157,7 +164,7 @@ def find_voice_for_gender_score(character: str, character_gender_map, engine_nam
+     if "scores" in character_gender_map and character.lower() in character_gender_map["scores"]:
+         character_info = character_gender_map["scores"][character.lower()]
+         character_gender_score = character_info["gender_score"]
+-        
++
+         return get_voice_for_character_score(engine_name, narrator_gender, character_gender_score)
+     else:
+         # Fallback for unknown characters - use score 5 (neutral)
+@@ -166,16 +173,16 @@ def find_voice_for_gender_score(character: str, character_gender_map, engine_nam
+ def validate_book_for_m4b_generation(book_path):
+     """
+     Validates that the book file is suitable for M4B audiobook generation.
+-    
++
+     This function performs early validation to catch issues before audio generation:
+     - Checks if the book file path is safe and accessible
+     - Verifies that ebook-meta command is available
+     - Tests metadata extraction from the book
+     - Ensures cover image can be extracted
+-    
++
+     Args:
+         book_path (str): Path to the book file
+-        
++
+     Returns:
+         tuple: (is_valid, error_message, metadata)
+             - is_valid (bool): True if validation passed
+@@ -186,20 +193,20 @@ def validate_book_for_m4b_generation(book_path):
+         # Validate file path safety and existence
+         if not validate_file_path(book_path):
+             return False, f"Invalid or inaccessible book file: {book_path}. Please check the file path and permissions.", None
+-        
++
+         # Test metadata extraction (this also validates ebook-meta availability)
+         metadata = get_ebook_metadata_with_cover(book_path)
+-        
++
+         # Check if we got meaningful metadata
+         if not metadata or len(metadata) == 0:
+             return False, f"No metadata could be extracted from the book file: {book_path}. Please ensure it's a valid ebook format.", None
+-            
++
+         # Check if cover extraction worked (cover.jpg should exist after get_ebook_metadata_with_cover)
+         if not validate_file_path("cover.jpg"):
+             return False, f"Could not extract cover image from the book file: {book_path}. The book may not contain a cover image.", None
+-            
++
+         return True, None, metadata
+-        
++
+     except ValueError as e:
+         return False, f"Book file validation error: {str(e)}", None
+     except RuntimeError as e:
 @@ -207,6 +214,151 @@ def validate_book_for_m4b_generation(book_path):
      except Exception as e:
          return False, f"Unexpected error during book validation: {str(e)}", None
@@ -174,13 +639,13 @@ index 1711db2..7162cfe 100755
 +    chapter_index = 1
 +    current_chapter_audio = "Introduction.wav"
 +    chapter_line_map = {}
-+    
++
 +    # Process tasks with progress updates
 +    last_reported = -1
 +    latest_chapter_name = None
 +    while tasks:
 +        done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
-+        
++
 +        # Store results as tasks complete
 +        for completed_task in done:
 +            idx = task_to_index[completed_task]
@@ -189,81 +654,81 @@ index 1711db2..7162cfe 100755
 +
 +            if result and result["is_chapter_heading"]:
 +                latest_chapter_name = result['line']
-+        
++
 +        tasks = list(pending)
-+        
++
 +        # Only yield if the counter has changed
 +        if progress_counter > last_reported:
 +            last_reported = progress_counter
 +            percent = (progress_counter / total_lines) * 100
 +            yield f"Generating audiobook. Chapter: {latest_chapter_name or 'N/A'}. Progress: {percent:.1f}%"
-+    
++
 +    # All tasks have completed at this point and results_all is populated
 +    results = [r for r in results_all if r is not None]  # Filter out empty lines
-+    
++
 +    progress_bar.close()
-+    
++
 +    # Filter out empty lines (same as in your original code)
 +    results = [r for r in results_all if r is not None]
-+    
++
 +    yield "Completed generating audio for all lines"
 +
 +    # Second pass: Organize by chapters
 +    chapter_organization_bar = tqdm(total=len(results), unit="result", desc="Organizing Chapters")
 +    yield "Organizing lines into chapters"
-+    
++
 +    chapter_line_text_map = {}
 +    for result in sorted(results, key=lambda x: x["index"]):
 +        # Check if this is a chapter heading
 +        if result["is_chapter_heading"]:
 +            chapter_index += 1
 +            current_chapter_audio = f"{sanitize_filename(result['line'])}.wav"
-+            
++
 +        if current_chapter_audio not in chapter_files:
 +            chapter_files.append(current_chapter_audio)
 +            chapter_line_map[current_chapter_audio] = []
-+            
++
 +        # Add this line index to the chapter
 +        chapter_line_map[current_chapter_audio].append(result["index"])
 +        chapter_line_text_map[result["index"]] = result["line"]
 +        chapter_organization_bar.update(1)
-+    
++
 +    chapter_organization_bar.close()
 +    yield f"Organized {len(results)} lines into {len(chapter_files)} chapters"
-+    
++
 +    # Third pass: Concatenate audio files for each chapter in order
 +    chapter_assembly_bar = tqdm(total=len(chapter_files), unit="chapter", desc="Assembling Chapters")
-+    
++
 +    SILENCE_DURATION_MS = 1000
 +    line_timings = []
 +    for chapter_file in chapter_files:
 +        # Use FFmpeg-based assembly instead of PyDub for memory efficiency
 +        assemble_chapter_with_ffmpeg(
-+            chapter_file, 
-+            chapter_line_map[chapter_file], 
-+            temp_line_audio_dir, 
++            chapter_file,
++            chapter_line_map[chapter_file],
++            temp_line_audio_dir,
 +            temp_audio_dir,
 +            chapter_line_text_map,
 +            line_timings,
 +            SILENCE_DURATION_MS
 +        )
-+        
++
 +        chapter_assembly_bar.update(1)
 +        yield f"Assembled chapter: {chapter_file}"
-+    
++
 +    chapter_assembly_bar.close()
 +    yield "Completed assembling all chapters"
-+    
++
 +    # Post-processing steps
 +    post_processing_bar = tqdm(total=len(chapter_files)*2, unit="task", desc="Post Processing")
-+    
++
 +    # Add silence to each chapter file using FFmpeg
 +    for chapter_file in chapter_files:
 +        chapter_path = os.path.join(temp_audio_dir, chapter_file)
-+        
++
 +        # Use FFmpeg-based silence addition instead of PyDub for memory efficiency
 +        add_silence_to_chapter_with_ffmpeg(chapter_path, SILENCE_DURATION_MS)  # 1 second silence
-+        
++
 +        post_processing_bar.update(1)
 +        yield f"Added silence to chapter: {chapter_file}"
 +
@@ -277,9 +742,9 @@ index 1711db2..7162cfe 100755
 +        convert_audio_file_formats("wav", "m4a", temp_audio_dir, chapter_name)
 +        post_processing_bar.update(1)
 +        yield f"Converted chapter to M4A: {chapter_name}"
-+    
++
 +    post_processing_bar.close()
-+    
++
 +    # Clean up temp line audio files
 +    yield "Cleaning up temporary files"
 +    shutil.rmtree(temp_line_audio_dir)
@@ -300,29 +765,176 @@ index 1711db2..7162cfe 100755
  async def generate_audio_with_single_voice(output_format, narrator_gender, generate_m4b_audiobook_file=False, book_path="", add_emotion_tags=False):
      # Read the text from the file
      """
-@@ -277,8 +429,6 @@ async def generate_audio_with_single_voice(output_format, narrator_gender, gener
+@@ -228,15 +380,15 @@ async def generate_audio_with_single_voice(output_format, narrator_gender, gener
+         str: Progress updates as the audiobook generation progresses through loading text, generating audio,
+              organizing by chapters, assembling chapters, and post-processing steps.
+     """
+-    
++
+     # Early validation for M4B generation
+     if generate_m4b_audiobook_file:
+         yield "Validating book file for M4B audiobook generation..."
+         is_valid, error_message, metadata = validate_book_for_m4b_generation(book_path)
+-        
++
+         if not is_valid:
+             raise ValueError(f"❌ Book validation failed: {error_message}")
+-            
++
+         yield f"✅ Book validation successful! Title: {metadata.get('Title', 'Unknown')}, Author: {metadata.get('Author(s)', 'Unknown')}"
+ 
+     # Check if emotion tags should be used and if they have been pre-applied
+@@ -247,20 +399,20 @@ async def generate_audio_with_single_voice(output_format, narrator_gender, gener
+     else:
+         with open("converted_book.txt", "r", encoding='utf-8') as f:
+             text = f.read()
+-        
++
+         # Apply text preprocessing for Orpheus TTS to prevent repetition issues
+         if TTS_MODEL.lower() == "orpheus":
+             text = preprocess_text_for_tts(text)
+             yield "Applied text preprocessing for Orpheus TTS"
+-    
++
+     lines = text.split("\n")
+-    
++
+     # Filter out empty lines
+     lines = [line.strip() for line in lines if line.strip()]
+-    
++
+     # Set the voices to be used - now using the new voice mapping system
+     narrator_voice, dialogue_voice = get_narrator_and_dialogue_voices(
+-        engine_name=TTS_MODEL, 
++        engine_name=TTS_MODEL,
+         narrator_gender=narrator_gender
+     )
+ 
+@@ -272,26 +424,21 @@ async def generate_audio_with_single_voice(output_format, narrator_gender, gener
+ 
+     os.makedirs(temp_audio_dir, exist_ok=True)
+     os.makedirs(temp_line_audio_dir, exist_ok=True)
+-    
++
+     # Batch processing parameters
      semaphore = asyncio.Semaphore(TTS_MAX_PARALLEL_REQUESTS_BATCH_SIZE)
-     
+-    
++
      # Initial setup for chapters
 -    chapter_index = 1
 -    current_chapter_audio = f"Introduction.wav"
      chapter_files = []
-     
+-    
++
      # First pass: Generate audio for each line independently
-@@ -289,9 +439,6 @@ async def generate_audio_with_single_voice(output_format, narrator_gender, gener
+     total_size = len(lines)
+ 
+     progress_counter = 0
+-    
++
      # For tracking progress with tqdm in an async context
      progress_bar = tqdm(total=total_size, unit="line", desc="Audio Generation Progress")
-     
+-    
 -    # Maps chapters to their line indices
 -    chapter_line_map = {}
 -    
++
      async def process_single_line(line_index, line):
          async with semaphore:
              nonlocal progress_counter
-@@ -379,113 +526,22 @@ async def generate_audio_with_single_voice(output_format, narrator_gender, gener
+@@ -300,13 +447,13 @@ async def generate_audio_with_single_voice(output_format, narrator_gender, gener
+                 progress_bar.update(1)
+                 progress_counter += 1
+                 return None
+-                
++
+             # Split the line into annotated parts
+             annotated_parts = split_and_annotate_text(line)
+-            
++
+             # Create combined audio using PyDub for seamless concatenation
+             combined_audio = AudioSegment.empty()
+-            
++
+             for part in annotated_parts:
+                 text_to_speak = part["text"].strip()
+ 
+@@ -314,54 +461,54 @@ async def generate_audio_with_single_voice(output_format, narrator_gender, gener
+                     continue
+ 
+                 voice_to_speak_in = narrator_voice if part["type"] == "narration" else dialogue_voice
+-                
++
+                 # Create temporary file for this part
+                 temp_file = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+                 temp_path = temp_file.name
+                 temp_file.close()
+-                
++
+                 try:
+                     # Generate audio for the part using retry mechanism
+                     audio_buffer = await generate_audio_with_retry(
+-                        async_openai_client, 
++                        async_openai_client,
+                         TTS_MODEL,
+-                        text_to_speak, 
++                        text_to_speak,
+                         voice_to_speak_in
+                     )
+-                    
++
+                     # Write part audio to temp file
+                     with open(temp_path, "wb") as temp_wav:
+                         temp_wav.write(audio_buffer)
+-                    
++
+                     # Load as AudioSegment and add to combined audio
+                     part_segment = AudioSegment.from_wav(temp_path)
+                     combined_audio += part_segment
+-                    
++
+                 except Exception as e:
+                     # Log the error for debugging
+                     print(f"Warning: Failed to generate audio for text: '{text_to_speak[:50]}...' - Error: {str(e)}")
+                     # Skip this part and continue with next part
+-                    
++
+                 finally:
+                     # Always clean up temp file
+                     if os.path.exists(temp_path):
+                         os.unlink(temp_path)
+-            
++
+             # Check if we have any audio content before exporting
+             if len(combined_audio) == 0:
+                 # If no audio was generated for this line, skip it entirely
+                 progress_bar.update(1)
+                 progress_counter += 1
+                 return None
+-            
++
+             # Write this line's audio to a temporary file
+             line_audio_path = os.path.join(temp_line_audio_dir, f"line_{line_index:06d}.wav")
+             combined_audio.export(line_audio_path, format="wav")
+-            
++
+             # Update progress bar
+             progress_bar.update(1)
+             progress_counter += 1
+-            
++
+             return {
+                 "index": line_index,
+                 "is_chapter_heading": check_if_chapter_heading(line),
+@@ -375,129 +522,38 @@ async def generate_audio_with_single_voice(output_format, narrator_gender, gener
+         task = asyncio.create_task(process_single_line(i, line))
+         tasks.append(task)
+         task_to_index[task] = i
+-    
++
      # Initialize results_all list
      results_all = [None] * len(lines)
-     
+-    
 -    # Process tasks with progress updates
 -    last_reported = -1
 -    while tasks:
@@ -418,7 +1030,7 @@ index 1711db2..7162cfe 100755
 -    # Clean up temp line audio files
 -    shutil.rmtree(temp_line_audio_dir)
 -    yield "Cleaned up temporary files"
--
+ 
 -    if generate_m4b_audiobook_file:
 -        # Merge all chapter files into a final m4b audiobook
 -        yield "Creating M4B audiobook file..."
@@ -449,25 +1061,214 @@ index 1711db2..7162cfe 100755
  
  def apply_emotion_tags_to_multi_voice_data(json_data_array):
      """
-@@ -625,14 +681,10 @@ async def generate_audio_with_multiple_voices(output_format, narrator_gender, ge
+     Dynamically apply pre-processed emotion tags to multi-voice JSONL data.
+-    
++
+     This function reads emotion-enhanced text from tag_added_lines_chunks.txt
+     and applies it to the speaker-attributed JSONL data in memory, preserving
+     speaker attributions while using the enhanced text content.
+-    
++
+     Args:
+         json_data_array (list): Original speaker-attributed JSONL data
+-        
++
+     Returns:
+         tuple: (success, json_data_array, message)
+             - success (bool): True if emotion tags were successfully applied
+@@ -506,7 +562,7 @@ def apply_emotion_tags_to_multi_voice_data(json_data_array):
+     """
+     if not os.path.exists("tag_added_lines_chunks.txt"):
+         return False, json_data_array, "No pre-processed emotion tags found"
+-    
++
+     try:
+         # Read the enhanced lines from tag_added_lines_chunks.txt
+         with open("tag_added_lines_chunks.txt", "r", encoding='utf-8') as f:
+@@ -519,7 +575,7 @@ def apply_emotion_tags_to_multi_voice_data(json_data_array):
+             return True, json_data_array, "Successfully applied pre-processed emotion tags"
+         else:
+             return False, json_data_array, f"Line count mismatch: {len(enhanced_lines)} enhanced lines vs {len(json_data_array)} speaker-attributed lines"
+-            
++
+     except Exception as e:
+         return False, json_data_array, f"Error applying emotion tags: {str(e)}"
+ 
+@@ -546,17 +602,17 @@ async def generate_audio_with_multiple_voices(output_format, narrator_gender, ge
+     :param book_path: The path to the book file (required for generating an M4B audiobook file)
+     :param add_emotion_tags: Whether to use pre-applied emotion tags in the audiobook. Defaults to False.
+     """
+-    
++
+     # Early validation for M4B generation
+     if generate_m4b_audiobook_file:
+         yield "Validating book file for M4B audiobook generation..."
+         is_valid, error_message, metadata = validate_book_for_m4b_generation(book_path)
+-        
++
+         if not is_valid:
+             raise ValueError(f"❌ Book validation failed: {error_message}")
+-            
++
+         yield f"✅ Book validation successful! Title: {metadata.get('Title', 'Unknown')}, Author: {metadata.get('Author(s)', 'Unknown')}"
+-    
++
+     file_path = 'speaker_attributed_book.jsonl'
+     json_data_array = []
+ 
+@@ -587,7 +643,7 @@ async def generate_audio_with_multiple_voices(output_format, narrator_gender, ge
+             '<yawn>' in item.get('line', '') or '<gasp>' in item.get('line', '')
+             for item in json_data_array
+         )
+-        
++
+         if has_emotion_tags:
+             yield "Removing existing emotion tags from JSONL data as per user preference"
+             import re
+@@ -596,7 +652,7 @@ async def generate_audio_with_multiple_voices(output_format, narrator_gender, ge
+                     # Remove emotion tags from the line
+                     line_without_tags = re.sub(r'<(?:laugh|chuckle|sigh|cough|sniffle|groan|yawn|gasp)>\s*', '', item["line"])
+                     item["line"] = line_without_tags
+-    
++
+     # Apply text preprocessing for Orpheus TTS to prevent repetition issues
+     if TTS_MODEL.lower() == "orpheus":
+         for item in json_data_array:
+@@ -610,7 +666,7 @@ async def generate_audio_with_multiple_voices(output_format, narrator_gender, ge
+     # Get narrator voice using the new voice mapping system
+     narrator_voice = find_voice_for_gender_score("narrator", character_gender_map, TTS_MODEL, narrator_gender)
+     yield "Loaded voice mappings and selected narrator voice"
+-    
++
+     # Setup directories
+     temp_audio_dir = "temp_audio"
+     temp_line_audio_dir = os.path.join(temp_audio_dir, "line_segments")
+@@ -620,21 +676,17 @@ async def generate_audio_with_multiple_voices(output_format, narrator_gender, ge
+     os.makedirs(temp_audio_dir, exist_ok=True)
+     os.makedirs(temp_line_audio_dir, exist_ok=True)
+     yield "Set up temporary directories for audio processing"
+-    
++
+     # Batch processing parameters
      semaphore = asyncio.Semaphore(TTS_MAX_PARALLEL_REQUESTS_BATCH_SIZE)
-     
+-    
++
      # Initial setup for chapters
 -    chapter_index = 1
 -    current_chapter_audio = f"Introduction.wav"
      chapter_files = []
-     
+-    
++
      # First pass: Generate audio for each line independently
      # and track chapter organization
 -    chapter_line_map = {}  # Maps chapters to their line indices
 -
      progress_counter = 0
-     
+-    
++
      # For tracking progress with tqdm in an async context
-@@ -733,122 +785,40 @@ async def generate_audio_with_multiple_voices(output_format, narrator_gender, ge
+     total_lines = len(json_data_array)
+     progress_bar = tqdm(total=total_lines, unit="line", desc="Audio Generation Progress")
+@@ -654,13 +706,13 @@ async def generate_audio_with_multiple_voices(output_format, narrator_gender, ge
+ 
+             speaker = doc["speaker"]
+             speaker_voice = find_voice_for_gender_score(speaker, character_gender_map, TTS_MODEL, narrator_gender)
+-            
++
+             # Split the line into annotated parts
+             annotated_parts = split_and_annotate_text(line)
+-            
++
+             # Create combined audio using PyDub for seamless concatenation
+             combined_audio = AudioSegment.empty()
+-            
++
+             for part in annotated_parts:
+                 text_to_speak = part["text"].strip()
+ 
+@@ -668,60 +720,60 @@ async def generate_audio_with_multiple_voices(output_format, narrator_gender, ge
+                     continue
+ 
+                 voice_to_speak_in = narrator_voice if part["type"] == "narration" else speaker_voice
+-                
++
+                 # Create temporary file for this part
+                 temp_file = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+                 temp_path = temp_file.name
+                 temp_file.close()
+-                
++
+                 try:
+                     # Generate audio for the part using retry mechanism
+                     audio_buffer = await generate_audio_with_retry(
+-                        async_openai_client, 
++                        async_openai_client,
+                         TTS_MODEL,
+-                        text_to_speak, 
++                        text_to_speak,
+                         voice_to_speak_in
+                     )
+-                    
++
+                     # Write part audio to temp file
+                     with open(temp_path, "wb") as temp_wav:
+                         temp_wav.write(audio_buffer)
+-                    
++
+                     # Load as AudioSegment and add to combined audio
+                     part_segment = AudioSegment.from_wav(temp_path)
+                     combined_audio += part_segment
+-                    
++
+                 except Exception as e:
+                     # Log the error for debugging
+                     print(f"Warning: Failed to generate audio for text: '{text_to_speak[:50]}...' - Error: {str(e)}")
+                     # Skip this part and continue with next part
+-                    
++
+                 finally:
+                     # Always clean up temp file
+                     if os.path.exists(temp_path):
+                         os.unlink(temp_path)
+-            
++
+             # Check if we have any audio content before exporting
+             if len(combined_audio) == 0:
+                 # If no audio was generated for this line, skip it entirely
+                 progress_bar.update(1)
+                 progress_counter += 1
+                 return None
+-            
++
+             # Write this line's audio to a temporary file
+             line_audio_path = os.path.join(temp_line_audio_dir, f"line_{line_index:06d}.wav")
+             combined_audio.export(line_audio_path, format="wav")
+-            
++
+             # Update progress bar
+             progress_bar.update(1)
+             progress_counter += 1
+-            
++
+             return {
+                 "index": line_index,
+                 "is_chapter_heading": check_if_chapter_heading(line),
+                 "line": line
+             }
+-    
++
+     # Create tasks and store them with their index for result collection
+     tasks = []
+     task_to_index = {}
+@@ -729,126 +781,44 @@ async def generate_audio_with_multiple_voices(output_format, narrator_gender, ge
+         task = asyncio.create_task(process_single_line(i, doc))
+         tasks.append(task)
+         task_to_index[task] = i
+-    
++
      # Initialize results_all list
      results_all = [None] * len(json_data_array)
-     
+-    
 -    # Process tasks with progress updates
 -    last_reported = -1
 -    while tasks:
@@ -549,7 +1350,7 @@ index 1711db2..7162cfe 100755
 -        yield f"Added silence to chapter: {chapter_file}"
 -
 -    m4a_chapter_files = []
--
+ 
 -    # Convert all chapter files to M4A format
 -    for chapter_file in chapter_files:
 -        chapter_name = chapter_file.split('.')[0]
@@ -616,6 +1417,65 @@ index 1711db2..7162cfe 100755
      generate_m4b_audiobook_file = False
  
      if output_format == "M4B (Chapters & Cover)":
+@@ -867,7 +837,7 @@ async def process_audiobook_generation(voice_option, narrator_gender, output_for
+                 yield line
+ 
+         yield f"\n🎧 Audiobook is generated ! You can now download it in the Download section below. Click on the blue download link next to the file name."
+-        
++
+     except ValueError as e:
+         # Handle validation errors specifically
+         error_msg = str(e)
+@@ -910,7 +880,7 @@ async def main():
+         if not is_calibre_installed:
+             print("⚠️ Calibre is not installed. Please install it first and make sure **calibre** and **ebook-meta** commands are available in your PATH.")
+             return
+-        
++
+         is_ffmpeg_installed = check_if_ffmpeg_is_installed()
+ 
+         if not is_ffmpeg_installed:
+@@ -929,11 +899,11 @@ async def main():
+             print(f"📂 Using book file: **{book_path}**")
+ 
+         print("✅ Book path set. Proceeding...\n")
+-        
++
+         # Early validation of the book file for M4B generation
+         print("🔍 Validating book file for M4B audiobook generation...")
+         is_valid, error_message, metadata = validate_book_for_m4b_generation(book_path)
+-        
++
+         if not is_valid:
+             print(f"❌ **Book validation failed**: {error_message}")
+             print("\n💡 **Troubleshooting Tips:**")
+@@ -943,7 +913,7 @@ async def main():
+             print("   • Make sure the book file is not corrupted")
+             print("   • Ensure the book file contains extractable metadata and cover image")
+             return
+-            
++
+         print(f"✅ **Book validation successful!**")
+         print(f"   • Title: {metadata.get('Title', 'Unknown')}")
+         print(f"   • Author: {metadata.get('Author(s)', 'Unknown')}")
+@@ -959,7 +929,7 @@ async def main():
+         if(output_format not in ["aac", "m4a", "mp3", "wav", "opus", "flac", "pcm"]):
+             print("\n⚠️ Invalid output format! Please choose from the give options")
+             return
+-        
++
+     # Prompt user for narrator's gender selection
+     print("\n🎙️ **Audiobook Narrator Voice Selection**")
+     narrator_gender = input("🔹 Enter **male** if you want the book to be read in a male voice or **female** if you want the book to be read in a female voice: ").strip()
+@@ -975,7 +945,7 @@ async def main():
+         print("🔹 Emotion tags add natural expressions like laughter, sighs, gasps to your audiobook")
+         print("🔹 Available tags: <laugh>, <chuckle>, <sigh>, <cough>, <sniffle>, <groan>, <yawn>, <gasp>")
+         emotion_tags_option = input("🔹 Do you want to use emotion tags in the audiobook? Enter **yes** or **no**: ").strip().lower()
+-        
++
+         if emotion_tags_option in ["yes", "y", "true", "1"]:
+             add_emotion_tags = True
+             print("✅ Emotion tags will be used in the audiobook!")
 diff --git a/utils/audiobook_utils.py b/utils/audiobook_utils.py
 index df8ac0b..5c935e2 100644
 --- a/utils/audiobook_utils.py
