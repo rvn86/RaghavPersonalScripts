@@ -113,7 +113,7 @@ if ! $ONLY_ACTIVATE; then
 # No quotes in values
 OPENAI_BASE_URL=http://localhost:1234/v1
 OPENAI_API_KEY=lm-studio
-OPENAI_MODEL_NAME=Qwen/Qwen3-4B
+OPENAI_MODEL_NAME=mistralai/Mistral-7B-Instruct-v0.3
 LLM_MAX_PARALLEL_REQUESTS_BATCH_SIZE=40
 TTS_BASE_URL=http://localhost:8880/v1
 TTS_API_KEY=dummy-key
