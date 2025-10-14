@@ -1,4 +1,4 @@
-From d733219f4b04c4303d46a2480f7f4b6ba84a697c Mon Sep 17 00:00:00 2001
+From b4c3d632e8441fa279e8041d812d9ca523d59d68 Mon Sep 17 00:00:00 2001
 From: Raghav <ragha.nv@gmail.com>
 Date: Sat, 11 Oct 2025 16:27:17 -0700
 Subject: [PATCH] Add chapters
@@ -6,9 +6,9 @@ Subject: [PATCH] Add chapters
 ---
  app.py                            | 245 ++++++-----
  generate_audiobook.py             | 701 ++++++++++++++++--------------
- utils/add_emotion_tags_to_text.py | 392 +++++++++++++----
+ utils/add_emotion_tags_to_text.py | 407 +++++++++++++----
  utils/audiobook_utils.py          | 502 +++++++++++++--------
- 4 files changed, 1140 insertions(+), 700 deletions(-)
+ 4 files changed, 1155 insertions(+), 700 deletions(-)
 
 diff --git a/app.py b/app.py
 index 8035285..ea893ff 100644
@@ -521,7 +521,7 @@ index 8035285..ea893ff 100644
 \ No newline at end of file
 +    uvicorn.run(app, host="0.0.0.0", port=7860)
 diff --git a/generate_audiobook.py b/generate_audiobook.py
-index 1711db2..5b138fc 100755
+index 1711db2..42e4855 100755
 --- a/generate_audiobook.py
 +++ b/generate_audiobook.py
 @@ -16,6 +16,7 @@ You should have received a copy of the GNU General Public License
@@ -708,7 +708,7 @@ index 1711db2..5b138fc 100755
 +    with open(knowledge_base_file, 'r') as f:
 +        knowledge_base = json.load(f)
 +
-+    max_retries_allowed = len(chapter) * 2
++    max_retries_allowed = len(chapters) * 2
 +    for chapter in chapters:
 +        entities, retries = await identify_chapter_entities(chapter["chapter_text"], knowledge_base) #{"Han Jue": {"description": chapter["chapter_text"]}}
 +        chapter_title = os.path.splitext(os.path.basename(chapter["chapter_filename"]))[0]
@@ -1633,13 +1633,14 @@ index 1711db2..5b138fc 100755
              add_emotion_tags = True
              print("✅ Emotion tags will be used in the audiobook!")
 diff --git a/utils/add_emotion_tags_to_text.py b/utils/add_emotion_tags_to_text.py
-index bed539e..9d84508 100644
+index bed539e..4ab6e12 100644
 --- a/utils/add_emotion_tags_to_text.py
 +++ b/utils/add_emotion_tags_to_text.py
-@@ -16,9 +16,12 @@ You should have received a copy of the GNU General Public License
+@@ -16,9 +16,13 @@ You should have received a copy of the GNU General Public License
  along with this program.  If not, see <https://www.gnu.org/licenses/>.
  """
  
++import re
 +import hashlib
 +from datetime import datetime
  import json
@@ -1649,7 +1650,7 @@ index bed539e..9d84508 100644
  import traceback
  from tqdm.asyncio import tqdm_asyncio # Use tqdm's async version for better updates
  from openai import AsyncOpenAI
-@@ -39,33 +42,33 @@ model_name = OPENAI_MODEL_NAME
+@@ -39,33 +43,33 @@ model_name = OPENAI_MODEL_NAME
  def fix_orphaned_tags_and_punctuation(text, original_text):
      """
      Fix orphaned emotion tags and punctuation issues while preserving line count.
@@ -1690,7 +1691,7 @@ index bed539e..9d84508 100644
                  # Try to move tag to previous line if it looks like dialogue
                  if i > 0 and i-1 < len(fixed_lines):
                      prev_line = fixed_lines[i-1]
-@@ -91,36 +94,36 @@ def fix_orphaned_tags_and_punctuation(text, original_text):
+@@ -91,36 +95,36 @@ def fix_orphaned_tags_and_punctuation(text, original_text):
                      # Remove tags but keep the line content to preserve line count
                      fixed_line = line_without_tags if line_without_tags else original_lines[i] if i < len(original_lines) else ""
                      print(f"Removed orphaned tag, preserved line content")
@@ -1735,7 +1736,7 @@ index bed539e..9d84508 100644
          # Check if dialogue ends with punctuation
          if dialogue_content and dialogue_content[-1] in '.!?,:;':
              # Insert tag before the punctuation
-@@ -128,79 +131,79 @@ def move_tag_to_dialogue(dialogue_line, emotion_tag):
+@@ -128,79 +132,79 @@ def move_tag_to_dialogue(dialogue_line, emotion_tag):
          else:
              # Add tag and punctuation at the end
              new_dialogue = dialogue_content + f" {emotion_tag}."
@@ -1832,7 +1833,7 @@ index bed539e..9d84508 100644
      Returns:
          dict: {
              'text': str,           # Validated text (cleaned or original)
-@@ -211,21 +214,21 @@ def postprocess_emotion_tags(enhanced_text, original_text):
+@@ -211,21 +215,21 @@ def postprocess_emotion_tags(enhanced_text, original_text):
      """
      # Define allowed emotion tags (official Orpheus TTS supported tags)
      ALLOWED_TAGS = {'<laugh>', '<chuckle>', '<sigh>', '<cough>', '<sniffle>', '<groan>', '<yawn>', '<gasp>'}
@@ -1859,7 +1860,7 @@ index bed539e..9d84508 100644
          if invalid_tags:
              if found_structural:
                  reason = f"Structural markup leaked from prompt: {found_structural}"
-@@ -238,18 +241,18 @@ def postprocess_emotion_tags(enhanced_text, original_text):
+@@ -238,18 +242,18 @@ def postprocess_emotion_tags(enhanced_text, original_text):
                  'reverted': True,
                  'reason': reason
              }
@@ -1882,7 +1883,7 @@ index bed539e..9d84508 100644
          if text_content_only != original_content_only:
              reason = f"Text content was modified beyond adding tags."
              print(f"Warning: {reason}. Reverting to original text.")
-@@ -259,13 +262,13 @@ def postprocess_emotion_tags(enhanced_text, original_text):
+@@ -259,13 +263,13 @@ def postprocess_emotion_tags(enhanced_text, original_text):
                  'reverted': True,
                  'reason': reason
              }
@@ -1898,7 +1899,7 @@ index bed539e..9d84508 100644
          if len(original_lines) != len(enhanced_lines):
              reason = f"Line structure changed ({len(original_lines)} -> {len(enhanced_lines)} lines)"
              print(f"Warning: {reason}. Reverting to original text.")
-@@ -275,9 +278,9 @@ def postprocess_emotion_tags(enhanced_text, original_text):
+@@ -275,9 +279,9 @@ def postprocess_emotion_tags(enhanced_text, original_text):
                  'reverted': True,
                  'reason': reason
              }
@@ -1910,7 +1911,7 @@ index bed539e..9d84508 100644
          # Check for malformed tags (missing < or >)
          malformed_tags = re.findall(r'<[^>]*$|^[^<]*>', cleaned_text)
          if malformed_tags:
-@@ -289,7 +292,7 @@ def postprocess_emotion_tags(enhanced_text, original_text):
+@@ -289,7 +293,7 @@ def postprocess_emotion_tags(enhanced_text, original_text):
                  'reverted': True,
                  'reason': reason
              }
@@ -1919,7 +1920,7 @@ index bed539e..9d84508 100644
          # Check for HTML entities that shouldn't be there
          if '&lt;' in cleaned_text or '&gt;' in cleaned_text:
              reason = "HTML entities found in emotion tags"
-@@ -300,7 +303,7 @@ def postprocess_emotion_tags(enhanced_text, original_text):
+@@ -300,7 +304,7 @@ def postprocess_emotion_tags(enhanced_text, original_text):
                  'reverted': True,
                  'reason': reason
              }
@@ -1928,7 +1929,7 @@ index bed539e..9d84508 100644
          # Check for tags breaking words (tag in the middle of a word)
          # Look for patterns like "wo<laugh>rd"
          word_breaking_pattern = r'\w<(?:laugh|chuckle|sigh|cough|sniffle|groan|yawn|gasp)>\w'
-@@ -313,7 +316,7 @@ def postprocess_emotion_tags(enhanced_text, original_text):
+@@ -313,7 +317,7 @@ def postprocess_emotion_tags(enhanced_text, original_text):
                  'reverted': True,
                  'reason': reason
              }
@@ -1937,7 +1938,7 @@ index bed539e..9d84508 100644
          # Check for excessive tag usage (more than 1 tag per 10 words as a safety check)
          word_count = len(original_text.split())
          tag_count = len(found_tags)
-@@ -326,7 +329,7 @@ def postprocess_emotion_tags(enhanced_text, original_text):
+@@ -326,7 +330,7 @@ def postprocess_emotion_tags(enhanced_text, original_text):
                  'reverted': True,
                  'reason': reason
              }
@@ -1946,7 +1947,7 @@ index bed539e..9d84508 100644
          # Check for duplicate consecutive tags
          consecutive_tags = re.search(r'<(?:laugh|chuckle|sigh|cough|sniffle|groan|yawn|gasp)>\s*<(?:laugh|chuckle|sigh|cough|sniffle|groan|yawn|gasp)>', cleaned_text)
          if consecutive_tags:
-@@ -338,13 +341,13 @@ def postprocess_emotion_tags(enhanced_text, original_text):
+@@ -338,13 +342,13 @@ def postprocess_emotion_tags(enhanced_text, original_text):
                  'reverted': True,
                  'reason': reason
              }
@@ -1962,7 +1963,7 @@ index bed539e..9d84508 100644
          # 7. Verify line count is preserved after fixing orphaned tags
          fixed_lines = cleaned_text.split('\n')
          if len(original_lines) != len(fixed_lines):
-@@ -356,7 +359,7 @@ def postprocess_emotion_tags(enhanced_text, original_text):
+@@ -356,7 +360,7 @@ def postprocess_emotion_tags(enhanced_text, original_text):
                  'reverted': True,
                  'reason': reason
              }
@@ -1971,7 +1972,7 @@ index bed539e..9d84508 100644
          # 8. Final check for remaining orphaned tags after fixes
          remaining_orphans = detect_remaining_orphaned_tags(cleaned_text)
          if remaining_orphans:
-@@ -368,7 +371,7 @@ def postprocess_emotion_tags(enhanced_text, original_text):
+@@ -368,7 +372,7 @@ def postprocess_emotion_tags(enhanced_text, original_text):
                  'reverted': True,
                  'reason': reason
              }
@@ -1980,7 +1981,7 @@ index bed539e..9d84508 100644
          # All validations passed
          return {
              'text': cleaned_text,
-@@ -376,7 +379,7 @@ def postprocess_emotion_tags(enhanced_text, original_text):
+@@ -376,7 +380,7 @@ def postprocess_emotion_tags(enhanced_text, original_text):
              'reverted': False,
              'reason': None
          }
@@ -1989,7 +1990,7 @@ index bed539e..9d84508 100644
      except Exception as e:
          reason = f"Exception in postprocessing: {str(e)}"
          print(f"Error in postprocessing emotion tags: {e}")
-@@ -387,6 +390,221 @@ def postprocess_emotion_tags(enhanced_text, original_text):
+@@ -387,6 +391,235 @@ def postprocess_emotion_tags(enhanced_text, original_text):
              'reason': reason
          }
  
@@ -2037,7 +2038,7 @@ index bed539e..9d84508 100644
 +
 +Do not include any text outside the JSON.
 +"""
-+    
++
 +    def validate_entities(entities_data):
 +        """Validate that all entities contain required fields."""
 +        if not isinstance(entities_data, dict):
@@ -2110,10 +2111,19 @@ index bed539e..9d84508 100644
 +                # ---- Save raw response ----
 +                raw_path = os.path.join(session_dir, f"{label}_attempt{attempt}_raw.txt")
 +                with open(raw_path, "w", encoding="utf-8") as f:
-+                    f.write(raw_response)
++                    f.write(response)
++
++
++                def clean_other_tags(raw_text):
++                    # Match JSON object from first { to last }
++                    match = re.search(r'(\{.*\})', raw_text, re.DOTALL)
++                    if match:
++                        return match.group(1)
++                    else:
++                        return raw_text  # fallback
 +
 +                # ---- Parse JSON ----
-+                cleaned = clean_thinking_tags(raw_response)
++                cleaned = clean_other_tags(clean_thinking_tags(raw_response))
 +                parsed = json.loads(cleaned)
 +
 +                # ---- Save parsed output ----
@@ -2203,6 +2213,11 @@ index bed539e..9d84508 100644
 +    )
 +
 +    refined_entities = refinement_result.get("entities", refinement_result)
++    removed_entities = {(name, info) for name, info in entities_data.items() if name not in refined_entities}
++
++    removed_path = os.path.join(session_dir, "refinement_removed_entities.json")
++    with open(removed_path, "w", encoding="utf-8") as f:
++        json.dump(removed_entities, f, ensure_ascii=False, indent=2)
 +
 +    # ----------- FINAL OUTPUT -----------
 +    total_retries = extraction_retries + refinement_retries
@@ -2211,7 +2226,7 @@ index bed539e..9d84508 100644
  # Consider adding @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
  async def enhance_text_with_emotions(text_segment):
      """Process a text segment, adding emotion tags."""
-@@ -473,14 +691,14 @@ You are an expert editor specializing in preparing book scripts for Text-to-Spee
+@@ -473,14 +706,14 @@ You are an expert editor specializing in preparing book scripts for Text-to-Spee
  
  **Line Break Preservation Examples:**
  
@@ -2228,7 +2243,7 @@ index bed539e..9d84508 100644
  ```
  "Hello there," she said.
  
-@@ -488,18 +706,18 @@ He `<sigh>` sighed deeply.
+@@ -488,18 +721,18 @@ He `<sigh>` sighed deeply.
  "I don't know what to do."
  ```
  
@@ -2251,7 +2266,7 @@ index bed539e..9d84508 100644
      There was no response.
  ```
  
-@@ -560,16 +778,16 @@ def create_chunks(text, chunk_size_lines=5):
+@@ -560,16 +793,16 @@ def create_chunks(text, chunk_size_lines=5):
  async def process_chunk_line_by_line(chunk):
      """
      Fallback function to process a chunk line by line when chunk-based processing fails.
@@ -2271,7 +2286,7 @@ index bed539e..9d84508 100644
      for line in lines:
          if line.strip():  # Only process non-empty lines
              try:
-@@ -582,7 +800,7 @@ async def process_chunk_line_by_line(chunk):
+@@ -582,7 +815,7 @@ async def process_chunk_line_by_line(chunk):
          else:
              # Preserve empty lines exactly
              processed_lines.append(line)
@@ -2280,7 +2295,7 @@ index bed539e..9d84508 100644
      return '\n'.join(processed_lines)
  
  async def add_tags_to_text_chunks(text_to_process):
-@@ -592,7 +810,7 @@ async def add_tags_to_text_chunks(text_to_process):
+@@ -592,7 +825,7 @@ async def add_tags_to_text_chunks(text_to_process):
      lines = text_to_process.split('\n')
      non_empty_lines = [line for line in lines if line.strip()]  # Only keep non-empty lines
      filtered_text = '\n'.join(non_empty_lines)
@@ -2289,7 +2304,7 @@ index bed539e..9d84508 100644
      yield f"Filtered text to match JSONL processing: {len(lines)} -> {len(non_empty_lines)} lines"
  
      # use a line-based chunker like the helper function above
-@@ -610,7 +828,7 @@ async def add_tags_to_text_chunks(text_to_process):
+@@ -610,7 +843,7 @@ async def add_tags_to_text_chunks(text_to_process):
              # Try chunk-based processing first
              enhancement_result = await enhance_text_with_emotions(chunk)
              final_result = enhancement_result['text']
@@ -2298,7 +2313,7 @@ index bed539e..9d84508 100644
              # Check if postprocessing failed and we need fallback
              if enhancement_result['reverted'] and enhancement_result['reason']:
                  print(f"Chunk {chunk_index}: Chunk processing failed ({enhancement_result['reason']})")
-@@ -620,7 +838,7 @@ async def add_tags_to_text_chunks(text_to_process):
+@@ -620,7 +853,7 @@ async def add_tags_to_text_chunks(text_to_process):
                  except Exception as e:
                      print(f"Chunk {chunk_index}: Line-by-line fallback also failed: {e}")
                      final_result = chunk  # Use original chunk if both methods fail
@@ -2307,7 +2322,7 @@ index bed539e..9d84508 100644
              progress_counter += 1
              return {
                  "index": chunk_index,
-@@ -629,7 +847,7 @@ async def add_tags_to_text_chunks(text_to_process):
+@@ -629,7 +862,7 @@ async def add_tags_to_text_chunks(text_to_process):
              }
  
      yield f"Processing {total_chunks} chunks for emotion tags (max {LLM_MAX_PARALLEL_REQUESTS_BATCH_SIZE} concurrent)..."
@@ -2316,7 +2331,7 @@ index bed539e..9d84508 100644
      # Create tasks with chunk indices
      tasks = []
      for i, chunk in enumerate(chunks):
-@@ -637,17 +855,17 @@ async def add_tags_to_text_chunks(text_to_process):
+@@ -637,17 +870,17 @@ async def add_tags_to_text_chunks(text_to_process):
  
      # Process tasks and yield progress updates as they complete
      results = [None] * total_chunks  # Pre-allocate to maintain order
@@ -2338,7 +2353,7 @@ index bed539e..9d84508 100644
      yield f"Completed processing all {total_chunks} emotion tag chunks"
  
      # Reassemble the book, respecting the original chunk separation
-@@ -655,7 +873,7 @@ async def add_tags_to_text_chunks(text_to_process):
+@@ -655,7 +888,7 @@ async def add_tags_to_text_chunks(text_to_process):
  
      # Validate that line count is preserved (using filtered text for comparison)
      enhanced_lines = enhanced_text.split('\n')
@@ -2347,7 +2362,7 @@ index bed539e..9d84508 100644
      if len(non_empty_lines) != len(enhanced_lines):
          error_msg = f"ERROR: Line count mismatch after emotion processing! Filtered: {len(non_empty_lines)}, Enhanced: {len(enhanced_lines)}"
          yield error_msg
-@@ -676,38 +894,38 @@ async def add_tags_to_text_chunks(text_to_process):
+@@ -676,38 +909,38 @@ async def add_tags_to_text_chunks(text_to_process):
  async def process_emotion_tags_for_jsonl_data(json_data_array):
      """
      Efficiently process emotion tags for JSONL data using optimized chunk processing.
@@ -2395,7 +2410,7 @@ index bed539e..9d84508 100644
      # Use the optimized add_tags_to_text_chunks function and yield its progress
  
      async for progress in add_tags_to_text_chunks(combined_text):
-@@ -716,20 +934,20 @@ async def process_emotion_tags_for_jsonl_data(json_data_array):
+@@ -716,20 +949,20 @@ async def process_emotion_tags_for_jsonl_data(json_data_array):
      enhanced_text = None
      with open("tag_added_lines_chunks.txt", "r") as f:
          enhanced_text = f.read()
