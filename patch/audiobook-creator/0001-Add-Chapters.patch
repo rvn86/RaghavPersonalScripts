@@ -1,4 +1,4 @@
-From b04783ce98cf562f4cc28fe7fb394480bd0d9251 Mon Sep 17 00:00:00 2001
+From 529363736dc35cb26277d98a386c8d451c8055eb Mon Sep 17 00:00:00 2001
 From: Raghav <ragha.nv@gmail.com>
 Date: Sat, 11 Oct 2025 16:27:17 -0700
 Subject: [PATCH] Add chapters
@@ -6,13 +6,13 @@ Subject: [PATCH] Add chapters
 ---
  .gitignore                        |   3 +-
  app.py                            | 258 ++++++-----
- books.py                          | 178 ++++++++
+ books.py                          | 184 ++++++++
  generate_audiobook.py             | 728 +++++++++++++++---------------
  notify.py                         |  85 ++++
  send.py                           |  42 ++
  utils/add_emotion_tags_to_text.py | 412 +++++++++++++----
  utils/audiobook_utils.py          | 507 +++++++++++++--------
- 8 files changed, 1484 insertions(+), 729 deletions(-)
+ 8 files changed, 1490 insertions(+), 729 deletions(-)
  create mode 100644 books.py
  create mode 100644 notify.py
  create mode 100644 send.py
@@ -553,10 +553,10 @@ index 8035285..b399ecd 100644
 +    uvicorn.run(app, host="0.0.0.0", port=7860)
 diff --git a/books.py b/books.py
 new file mode 100644
-index 0000000..fd31e37
+index 0000000..6fb289a
 --- /dev/null
 +++ b/books.py
-@@ -0,0 +1,178 @@
+@@ -0,0 +1,184 @@
 +#!/usr/bin/env python3
 +"""
 +Batch Audiobook Generator with FCM notifications (refactored with Notifier class)
@@ -683,34 +683,40 @@ index 0000000..fd31e37
 +async def main(args):
 +    notifier = Notifier(args.service, args.token) if not args.no_message else Notifier(None, None)
 +
-+    # Get book files
-+    if not os.path.exists(BOOKS_FOLDER):
-+        print(f"Input folder '{BOOKS_FOLDER}' does not exist.")
-+        return
++    try:
++        # Get book files
++        if not os.path.exists(BOOKS_FOLDER):
++            notifier.send_error("Audiobook Generation Error", f"Input folder '{BOOKS_FOLDER}' does not exist.")
++            print(f"Input folder '{BOOKS_FOLDER}' does not exist.")
++            return
 +
-+    book_files = [os.path.join(BOOKS_FOLDER, f) for f in os.listdir(BOOKS_FOLDER)
-+                  if os.path.isfile(os.path.join(BOOKS_FOLDER, f))]
++        book_files = [os.path.join(BOOKS_FOLDER, f) for f in os.listdir(BOOKS_FOLDER)
++                    if os.path.isfile(os.path.join(BOOKS_FOLDER, f))]
 +
-+    if not book_files:
-+        print(f"No book files found in '{BOOKS_FOLDER}'.")
-+        return
++        if not book_files:
++            notifier.send_error("Audiobook Generation Error", f"No book files found in '{BOOKS_FOLDER}'.")
++            print(f"No book files found in '{BOOKS_FOLDER}'.")
++            return
 +
-+    total_files = len(book_files)
-+    completed_files = 0
++        total_files = len(book_files)
++        completed_files = 0
 +
-+    # Send starting notification
-+    if notifier.enabled:
-+        notifier.send("Audiobook Generation Started 🚀",
-+                      f"Batch audiobook generation is starting.\nFiles: {completed_files}/{total_files} completed")
++        # Send starting notification
++        if notifier.enabled:
++            notifier.send_info("Audiobook Generation Started 🚀",
++                        f"Batch audiobook generation is starting.\nFiles: {completed_files}/{total_files} completed")
 +
-+    for book_path in book_files:
-+        success = await generate_audiobook_for_file(book_path, args, notifier, total_files, completed_files)
-+        completed_files += 1  # increment regardless of success/skipped
++        for book_path in book_files:
++            success = await generate_audiobook_for_file(book_path, args, notifier, total_files, completed_files)
++            completed_files += 1  # increment regardless of success/skipped
 +
 +
-+    if args.notify_success:
-+        notifier.send_info("Complete! ✅", f"All Audiobook Generated.\nFiles: {completed_files}/{total_files} completed")
-+
++        if args.notify_success:
++            notifier.send_info("Complete! ✅", f"All Audiobook Generated.\nFiles: {completed_files}/{total_files} completed")
++    except Exception as e:
++        err_msg = f"Unexpected error during batch processing: {e}"
++        print(f"❌ {err_msg}")
++        notifier.send_error("Audiobook Generation Error", err_msg)
 +
 +# -----------------------------
 +# Command-line interface
