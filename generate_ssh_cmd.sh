@@ -17,6 +17,9 @@ KEY=$(echo "$SSH_CMD" | grep -oP '(?<=-i\s)[^ ]+')
 # Construct the SCP command
 SCP_CMD="scp -P $PORT -i $KEY ~/Downloads/chapters/* $USER_HOST:/audiobook-creator/books/"
 
+SCP_REV_CMD="scp -P $PORT -i $KEY $USER_HOST:/audiobook-creator/outputs/*  ~/Downloads/chapter_audio/"
+
 # Print the resulting SCP command
 echo "$SCP_CMD"
 
+echo "$SCP_REV_CMD"

@@ -1,4 +1,4 @@
-From a9b1409b0712869df77edee8e2389acf970b1e64 Mon Sep 17 00:00:00 2001
+From b04783ce98cf562f4cc28fe7fb394480bd0d9251 Mon Sep 17 00:00:00 2001
 From: Raghav <ragha.nv@gmail.com>
 Date: Sat, 11 Oct 2025 16:27:17 -0700
 Subject: [PATCH] Add chapters
@@ -6,13 +6,13 @@ Subject: [PATCH] Add chapters
 ---
  .gitignore                        |   3 +-
  app.py                            | 258 ++++++-----
- books.py                          | 174 +++++++
+ books.py                          | 178 ++++++++
  generate_audiobook.py             | 728 +++++++++++++++---------------
- notify.py                         |  67 +++
- send.py                           |  37 ++
+ notify.py                         |  85 ++++
+ send.py                           |  42 ++
  utils/add_emotion_tags_to_text.py | 412 +++++++++++++----
  utils/audiobook_utils.py          | 507 +++++++++++++--------
- 8 files changed, 1457 insertions(+), 729 deletions(-)
+ 8 files changed, 1484 insertions(+), 729 deletions(-)
  create mode 100644 books.py
  create mode 100644 notify.py
  create mode 100644 send.py
@@ -553,10 +553,10 @@ index 8035285..b399ecd 100644
 +    uvicorn.run(app, host="0.0.0.0", port=7860)
 diff --git a/books.py b/books.py
 new file mode 100644
-index 0000000..5be10dd
+index 0000000..fd31e37
 --- /dev/null
 +++ b/books.py
-@@ -0,0 +1,174 @@
+@@ -0,0 +1,178 @@
 +#!/usr/bin/env python3
 +"""
 +Batch Audiobook Generator with FCM notifications (refactored with Notifier class)
@@ -606,7 +606,7 @@ index 0000000..5be10dd
 +    files_status = f"Files: {completed_files}/{total_files} completed"
 +
 +    if os.path.exists(target_output_path):
-+        notifier.send("Audiobook Skipped 👌", f"'{book_file_name}' was skipped (already exists).\n{files_status}")
++        notifier.send_info("Audiobook Skipped 👌", f"'{book_file_name}' was skipped (already exists).\n{files_status}")
 +        print(f"Skipping '{book_file_name}' - audiobook already exists.\n")
 +        return False  # indicates skipped
 +
@@ -618,7 +618,7 @@ index 0000000..5be10dd
 +        if not is_valid:
 +            err_msg = f"Validation failed for '{book_file_name}': {error_message}\n{files_status}"
 +            print(f"❌ {err_msg}")
-+            notifier.send("Audiobook Generation Error", err_msg)
++            notifier.send_error("Audiobook Generation Error", err_msg)
 +            return False
 +
 +        print(f"✅ Validation passed: {metadata.get('Title', 'Unknown')} by {metadata.get('Author(s)', 'Unknown')}\n")
@@ -658,7 +658,7 @@ index 0000000..5be10dd
 +        if not os.path.exists(generated_file_path):
 +            err_msg = f"Audiobook not found after generation for '{book_file_name}'\n{files_status}"
 +            print(f"❌ {err_msg}")
-+            notifier.send("Audiobook Generation Error", err_msg)
++            notifier.send_error("Audiobook Generation Error", err_msg)
 +            return False
 +
 +        os.makedirs(OUTPUTS_FOLDER, exist_ok=True)
@@ -666,14 +666,14 @@ index 0000000..5be10dd
 +        print(f"✅ Audiobook saved to '{target_output_path}'\n")
 +
 +        if args.notify_success:
-+            notifier.send("Audiobook Generated ✅", f"'{book_file_name}' was successfully converted.\n{files_status}")
++            notifier.send_info("Audiobook Generated ✅", f"'{book_file_name}' was successfully converted.\n{files_status}")
 +
 +        return True
 +
 +    except Exception as e:
 +        err_msg = f"Error generating audiobook for '{book_file_name}': {e}\n{files_status}"
 +        print(f"❌ {err_msg}")
-+        notifier.send("Audiobook Generation Error", err_msg)
++        notifier.send_error("Audiobook Generation Error", err_msg)
 +        return False
 +
 +
@@ -706,6 +706,10 @@ index 0000000..5be10dd
 +    for book_path in book_files:
 +        success = await generate_audiobook_for_file(book_path, args, notifier, total_files, completed_files)
 +        completed_files += 1  # increment regardless of success/skipped
++
++
++    if args.notify_success:
++        notifier.send_info("Complete! ✅", f"All Audiobook Generated.\nFiles: {completed_files}/{total_files} completed")
 +
 +
 +# -----------------------------
@@ -1862,10 +1866,10 @@ index 1711db2..516af71 100755
              print("✅ Emotion tags will be used in the audiobook!")
 diff --git a/notify.py b/notify.py
 new file mode 100644
-index 0000000..cd17c98
+index 0000000..06ffe8b
 --- /dev/null
 +++ b/notify.py
-@@ -0,0 +1,67 @@
+@@ -0,0 +1,85 @@
 +#!/usr/bin/env python3
 +import os
 +import json
@@ -1900,7 +1904,15 @@ index 0000000..cd17c98
 +            print("🛑 Error: 'project_id' not found in service JSON.")
 +            self.enabled = False
 +
-+    def send(self, title: str, body: str):
++    def send_info(self, title: str, body: str):
++        """Send an info notification"""
++        self.send(title, body, notification_type="default")
++    
++    def send_error(self, title: str, body: str):
++        """Send an error notification"""
++        self.send(title, body, notification_type="error")
++
++    def send(self, title: str, body: str, notification_type: str = "default"):
 +        """Send an FCM notification"""
 +        if not self.enabled:
 +            return
@@ -1913,10 +1925,21 @@ index 0000000..cd17c98
 +            access_token = credentials.token
 +
 +            url = f"https://fcm.googleapis.com/v1/projects/{self.project_id}/messages:send"
++
++            if notification_type == "error":
++                channel_id = "fcm_rakm_audiobook_error_v5"
++            else:
++                channel_id = "fcm_rakm_audiobook"
++
 +            message = {
 +                "message": {
 +                    "token": self.token,
-+                    "notification": {"title": title, "body": body}
++                    "notification": {"title": title, "body": body},
++                    "android": {
++                        "notification": {
++                            "channel_id": channel_id
++                        }
++                    },
 +                }
 +            }
 +            headers = {
@@ -1932,13 +1955,12 @@ index 0000000..cd17c98
 +
 +        except Exception as e:
 +            print(f"🛑 Error sending notification: {e}")
-+
 diff --git a/send.py b/send.py
 new file mode 100644
-index 0000000..6f62b3f
+index 0000000..25598ac
 --- /dev/null
 +++ b/send.py
-@@ -0,0 +1,37 @@
+@@ -0,0 +1,42 @@
 +#!/usr/bin/env python3
 +"""
 +A utils method to send a notification via firebase.
@@ -1955,7 +1977,10 @@ index 0000000..6f62b3f
 +
 +    # Send starting notification using provided message (no fixed title)
 +    if notifier.enabled:
-+        notifier.send("", args.message)
++        if args.type == "error":
++            notifier.send_error(args.title or "Custom Error Message", args.message)
++        else:
++            notifier.send_info(args.title or "Custom Info Message", args.message)
 +
 +
 +# -----------------------------
@@ -1967,6 +1992,8 @@ index 0000000..6f62b3f
 +    parser.add_argument("--service", type=str, required=True, help="Path to Firebase service account JSON")
 +    parser.add_argument("--token", type=str, required=True, help="Device token for FCM notifications (can be a .txt file)")
 +    parser.add_argument("--message", type=str, required=True, help="Notification message body to send when generation starts")
++    parser.add_argument("--type", type=str, choices=["info", "error"], default="info", help="Type of notification to send (default: info)")
++    parser.add_argument("--title", type=str, help="Notification title (optional)")
 +
 +    args = parser.parse_args()
 +
