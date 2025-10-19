@@ -1,14 +1,16 @@
-From 7b6c63a4e8f1c1f969cd43ea997d39676bbdcf2b Mon Sep 17 00:00:00 2001
+From de0f06520c8c0f2ab448a6d5e4c6649b564582b1 Mon Sep 17 00:00:00 2001
 From: Raghav <ragha.nv@gmail.com>
 Date: Sat, 11 Oct 2025 16:27:17 -0700
 Subject: [PATCH] Add chapters
 
 ---
  app.py                            | 258 ++++++-----
+ books.py                          | 223 +++++++++
  generate_audiobook.py             | 728 +++++++++++++++---------------
  utils/add_emotion_tags_to_text.py | 412 +++++++++++++----
  utils/audiobook_utils.py          | 507 +++++++++++++--------
- 4 files changed, 1177 insertions(+), 728 deletions(-)
+ 5 files changed, 1400 insertions(+), 728 deletions(-)
+ create mode 100644 books.py
 
 diff --git a/app.py b/app.py
 index 8035285..b399ecd 100644
@@ -532,6 +534,235 @@ index 8035285..b399ecd 100644
 -    uvicorn.run(app, host="0.0.0.0", port=7860)
 \ No newline at end of file
 +    uvicorn.run(app, host="0.0.0.0", port=7860)
+diff --git a/books.py b/books.py
+new file mode 100644
+index 0000000..9ec57be
+--- /dev/null
++++ b/books.py
+@@ -0,0 +1,223 @@
++#!/usr/bin/env python3
++"""
++Batch Audiobook Generator with FCM notifications (refactored with Notifier class)
++"""
++
++import sys
++import os
++import shutil
++import asyncio
++import argparse
++import json
++import requests
++from tqdm import tqdm
++from generate_audiobook import process_audiobook_generation, validate_book_for_m4b_generation
++from google.oauth2 import service_account
++from google.auth.transport.requests import Request
++
++# -----------------------------
++# Configuration defaults
++# -----------------------------
++BOOKS_FOLDER = "books"
++OUTPUTS_FOLDER = "outputs"
++VOICE_TYPE = "Single Voice"
++NARRATOR_GENDER = "female"
++OUTPUT_FORMAT = "M4A"
++USE_EMOTION_TAGS = False
++KB_FILE = None
++
++# -----------------------------
++# Notifier class
++# -----------------------------
++class Notifier:
++    """Handles FCM notifications using service account + device token"""
++
++    def __init__(self, service_file: str, token: str):
++        if not service_file or not token:
++            self.enabled = False
++            return
++        self.enabled = True
++        self.service_file = service_file
++        # Load token from file if it's a .txt file
++        if token.endswith(".txt") and os.path.isfile(token):
++            with open(token, "r", encoding="utf-8") as f:
++                self.token = f.read().strip()
++        else:
++            self.token = token
++
++        # Load project ID from service JSON
++        with open(service_file, "r", encoding="utf-8") as f:
++            self.project_id = json.load(f).get("project_id")
++
++        if not self.project_id:
++            print("🛑 Error: 'project_id' not found in service JSON.")
++            self.enabled = False
++
++    def send(self, title: str, body: str):
++        """Send an FCM notification"""
++        if not self.enabled:
++            return
++        try:
++            credentials = service_account.Credentials.from_service_account_file(
++                self.service_file,
++                scopes=["https://www.googleapis.com/auth/firebase.messaging"]
++            )
++            credentials.refresh(Request())
++            access_token = credentials.token
++
++            url = f"https://fcm.googleapis.com/v1/projects/{self.project_id}/messages:send"
++            message = {
++                "message": {
++                    "token": self.token,
++                    "notification": {"title": title, "body": body}
++                }
++            }
++            headers = {
++                "Authorization": f"Bearer {access_token}",
++                "Content-Type": "application/json; UTF-8"
++            }
++
++            resp = requests.post(url, headers=headers, data=json.dumps(message))
++            if resp.status_code == 200:
++                print(f"✅ Notification sent: {title}")
++            else:
++                print(f"🛑 Failed to send notification: {resp.status_code} {resp.text}")
++
++        except Exception as e:
++            print(f"🛑 Error sending notification: {e}")
++
++
++# -----------------------------
++# Helper functions
++# -----------------------------
++def get_output_file_path(book_file_name: str, output_format: str):
++    base_name, _ = os.path.splitext(book_file_name)
++    extension = "m4b" if output_format == "M4B (Chapters & Cover)" else output_format.lower()
++    return os.path.join(OUTPUTS_FOLDER, f"{base_name}.{extension}")
++
++
++def save_converted_book(book_path: str):
++    with open(book_path, "r", encoding="utf-8") as fin:
++        text_content = fin.read()
++    with open("converted_book.txt", "w", encoding="utf-8") as fout:
++        fout.write(text_content)
++
++
++async def generate_audiobook_for_file(book_path: str, args, notifier: Notifier):
++    book_file_name = os.path.basename(book_path)
++    target_output_path = get_output_file_path(book_file_name, OUTPUT_FORMAT)
++
++    if os.path.exists(target_output_path):
++        notifier.send("Audiobook Skipped 👌", f"'{book_file_name}' was skipped (already exists).")
++        print(f"Skipping '{book_file_name}' - audiobook already exists.\n")
++        return
++
++    print(f"Processing '{book_file_name}'...\n")
++    save_converted_book(book_path)
++
++    if OUTPUT_FORMAT == "M4B (Chapters & Cover)":
++        is_valid, error_message, metadata = validate_book_for_m4b_generation("converted_book.txt")
++        if not is_valid:
++            err_msg = f"Validation failed for '{book_file_name}': {error_message}"
++            print(f"❌ {err_msg}")
++            notifier.send("Audiobook Generation Error", err_msg)
++            return
++        print(f"✅ Validation passed: {metadata.get('Title', 'Unknown')} by {metadata.get('Author(s)', 'Unknown')}\n")
++
++    print("Generating audiobook...")
++
++    try:
++        pbar = tqdm(total=100, bar_format="{l_bar}{bar}| {n_fmt}% ", ncols=80)
++        last_progress = 0
++
++        async for progress_text in process_audiobook_generation(
++            VOICE_TYPE,
++            NARRATOR_GENDER,
++            OUTPUT_FORMAT,
++            "converted_book.txt",
++            USE_EMOTION_TAGS,
++            KB_FILE
++        ):
++            if "Progress:" in progress_text:
++                try:
++                    progress_str = progress_text.split("Progress:")[1].split("%")[0].strip()
++                    progress = float(progress_str)
++                    pbar.update(progress - last_progress)
++                    last_progress = progress
++                except:
++                    pass
++
++        pbar.n = 100
++        pbar.close()
++        print("\n✅ Audiobook generation completed.\n")
++
++        # Move generated audiobook to outputs folder
++        generated_folder = "generated_audiobooks"
++        generated_file_name = "audiobook.m4b" if OUTPUT_FORMAT == "M4B (Chapters & Cover)" else f"audiobook.{OUTPUT_FORMAT.lower()}"
++        generated_file_path = os.path.join(generated_folder, generated_file_name)
++
++        if not os.path.exists(generated_file_path):
++            err_msg = f"Audiobook not found after generation for '{book_file_name}'"
++            print(f"❌ {err_msg}")
++            notifier.send("Audiobook Generation Error", err_msg)
++            return
++
++        os.makedirs(OUTPUTS_FOLDER, exist_ok=True)
++        shutil.move(generated_file_path, target_output_path)
++        print(f"✅ Audiobook saved to '{target_output_path}'\n")
++
++        if args.notify_success:
++            notifier.send("Audiobook Generated ✅", f"'{book_file_name}' was successfully converted.")
++
++    except Exception as e:
++        err_msg = f"Error generating audiobook for '{book_file_name}': {e}"
++        print(f"❌ {err_msg}")
++        notifier.send("Audiobook Generation Error", err_msg)
++
++
++async def main(args):
++    # Initialize notifier
++    notifier = Notifier(args.service, args.token) if not args.no_message else Notifier(None, None)
++
++    # Send starting notification
++    if notifier.enabled:
++        notifier.send("Audiobook Generation Started 🚀", "Batch audiobook generation is starting.")
++
++    if not os.path.exists(BOOKS_FOLDER):
++        print(f"Input folder '{BOOKS_FOLDER}' does not exist.")
++        return
++
++    book_files = [os.path.join(BOOKS_FOLDER, f) for f in os.listdir(BOOKS_FOLDER)
++                  if os.path.isfile(os.path.join(BOOKS_FOLDER, f))]
++
++    if not book_files:
++        print(f"No book files found in '{BOOKS_FOLDER}'.")
++        return
++
++    for book_path in book_files:
++        await generate_audiobook_for_file(book_path, args, notifier)
++
++
++# -----------------------------
++# Command-line interface
++# -----------------------------
++if __name__ == "__main__":
++    parser = argparse.ArgumentParser(description="Batch Audiobook Generator with FCM notifications")
++
++    group = parser.add_mutually_exclusive_group()
++    group.add_argument("--no-message", action="store_true",
++                       help="Disable FCM notifications completely")
++    group.add_argument("--notify-success", action="store_true",
++                       help="Send notifications on successful audiobook generation (errors always notified)")
++
++    parser.add_argument("--service", type=str, help="Path to Firebase service account JSON")
++    parser.add_argument("--token", type=str, help="Device token for FCM notifications (can be a .txt file)")
++
++    args = parser.parse_args()
++
++    if not args.no_message and (not args.service or not args.token):
++        print("🛑 Error: --service and --token must be provided unless --no-message is specified")
++        parser.print_help()
++        sys.exit(1)
++
++    asyncio.run(main(args))
 diff --git a/generate_audiobook.py b/generate_audiobook.py
 index 1711db2..516af71 100755
 --- a/generate_audiobook.py
