@@ -1,4 +1,4 @@
-From 6ed24f8070e6121f8b3a50df71f701a9c73641ca Mon Sep 17 00:00:00 2001
+From 9e356aa83a6fe4edab1614626311ea3865c32afe Mon Sep 17 00:00:00 2001
 From: Raghav <ragha.nv@gmail.com>
 Date: Sat, 11 Oct 2025 16:27:17 -0700
 Subject: [PATCH] Add chapters
@@ -7,13 +7,13 @@ Subject: [PATCH] Add chapters
  .gitignore                        |   3 +-
  app.py                            | 258 ++++++-----
  books.py                          | 184 ++++++++
- download_chapters.py              | 195 ++++++++
+ download_chapters.py              | 219 +++++++++
  generate_audiobook.py             | 728 +++++++++++++++---------------
  notify.py                         |  85 ++++
  send.py                           |  42 ++
  utils/add_emotion_tags_to_text.py | 412 +++++++++++++----
  utils/audiobook_utils.py          | 507 +++++++++++++--------
- 9 files changed, 1685 insertions(+), 729 deletions(-)
+ 9 files changed, 1709 insertions(+), 729 deletions(-)
  create mode 100644 books.py
  create mode 100644 download_chapters.py
  create mode 100644 notify.py
@@ -745,10 +745,10 @@ index 0000000..6fb289a
 +    asyncio.run(main(args))
 diff --git a/download_chapters.py b/download_chapters.py
 new file mode 100644
-index 0000000..bee034a
+index 0000000..1753552
 --- /dev/null
 +++ b/download_chapters.py
-@@ -0,0 +1,195 @@
+@@ -0,0 +1,219 @@
 +#!/usr/bin/env python3
 +import sys
 +import os
@@ -758,9 +758,10 @@ index 0000000..bee034a
 +from pathlib import Path
 +from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
 +from notify import Notifier
++import re
 +
 +def get_chapter_text(url: str, timeout_ms=240000):
-+    """Extracts chapter text and parses chapter number and title."""
++    """Extracts chapter text and parses chapter number and title from correctly formatted lines."""
 +    with sync_playwright() as p:
 +        browser = p.chromium.launch(headless=True)
 +        page = browser.new_page()
@@ -802,16 +803,30 @@ index 0000000..bee034a
 +        if not chapter_text:
 +            raise Exception(f"No text found for chapter at URL: {url}")
 +
-+        # Extract chapter number and title from first line
-+        first_line = chapter_text.splitlines()[0].strip()
-+        match = re.match(r"Chapter\s+(\d+)\s*(.*)", first_line, re.IGNORECASE)
++        # Only accept lines matching "Chapter <number> <title>" (no colon)
++        lines = chapter_text.splitlines()
 +        chapter_num = None
 +        chapter_title = None
-+        if match:
-+            chapter_num = int(match.group(1))
-+            chapter_title = match.group(2).strip()
++        valid_start_index = None
++
++        for i, line in enumerate(lines):
++            line = line.strip()
++            # Match "Chapter <number> <title>" but not "Chapter <number>: <title>"
++            match = re.match(r"Chapter\s+(\d+)\s+([^\:]+)$", line, re.IGNORECASE)
++            if match:
++                chapter_num = int(match.group(1))
++                chapter_title = match.group(2).strip()
++                valid_start_index = i
++                break
++
++        if valid_start_index is not None:
++            # Keep only the valid text from the correct chapter title line onward
++            chapter_text = "\n".join(lines[valid_start_index:])
++        else:
++            raise Exception(f"No valid chapter title line found in text for URL: {url}")
 +
 +        return chapter_text, chapter_num, chapter_title
++
 +
 +def save_chapter_text(batch_dir: Path, chap_num: int, text: str):
 +    batch_dir.mkdir(parents=True, exist_ok=True)
@@ -863,6 +878,15 @@ index 0000000..bee034a
 +    batch_base_dir = Path(args.batch_dir)
 +    
 +    notifier = Notifier(args.service, args.token) if not args.no_message else Notifier(None, None)
++
++    print(f"""Info:
++Chapters per batch: {chapters_per_batch}
++Number of batches: {num_batches}
++Output directory: {output_dir}
++Batch directory: {batch_base_dir}
++Starting URL: {start_url}
++Notifications enabled: {notifier.enabled}
++""")
 +
 +    current_url = start_url
 +    completed_batches = 0
@@ -917,7 +941,7 @@ index 0000000..bee034a
 +                if not current_url:
 +                    break  # Stop batch if no next chapter
 +
-+                time.sleep(5)
++                time.sleep(1)
 +
 +            except Exception as e:
 +                err_msg = f"Failed to extract chapter from batch url {batch_start_url}\nat {current_url}"
