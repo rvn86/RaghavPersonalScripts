@@ -1,4 +1,4 @@
-From 529363736dc35cb26277d98a386c8d451c8055eb Mon Sep 17 00:00:00 2001
+From 6ed24f8070e6121f8b3a50df71f701a9c73641ca Mon Sep 17 00:00:00 2001
 From: Raghav <ragha.nv@gmail.com>
 Date: Sat, 11 Oct 2025 16:27:17 -0700
 Subject: [PATCH] Add chapters
@@ -7,13 +7,15 @@ Subject: [PATCH] Add chapters
  .gitignore                        |   3 +-
  app.py                            | 258 ++++++-----
  books.py                          | 184 ++++++++
+ download_chapters.py              | 195 ++++++++
  generate_audiobook.py             | 728 +++++++++++++++---------------
  notify.py                         |  85 ++++
  send.py                           |  42 ++
  utils/add_emotion_tags_to_text.py | 412 +++++++++++++----
  utils/audiobook_utils.py          | 507 +++++++++++++--------
- 8 files changed, 1490 insertions(+), 729 deletions(-)
+ 9 files changed, 1685 insertions(+), 729 deletions(-)
  create mode 100644 books.py
+ create mode 100644 download_chapters.py
  create mode 100644 notify.py
  create mode 100644 send.py
 
@@ -741,6 +743,207 @@ index 0000000..6fb289a
 +        sys.exit(1)
 +
 +    asyncio.run(main(args))
+diff --git a/download_chapters.py b/download_chapters.py
+new file mode 100644
+index 0000000..bee034a
+--- /dev/null
++++ b/download_chapters.py
+@@ -0,0 +1,195 @@
++#!/usr/bin/env python3
++import sys
++import os
++import re
++import time
++import argparse
++from pathlib import Path
++from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
++from notify import Notifier
++
++def get_chapter_text(url: str, timeout_ms=240000):
++    """Extracts chapter text and parses chapter number and title."""
++    with sync_playwright() as p:
++        browser = p.chromium.launch(headless=True)
++        page = browser.new_page()
++        print(f"[INFO] Navigating to: {url}")
++        page.goto(url, wait_until="networkidle", timeout=timeout_ms)
++        print("[INFO] Page loaded.")
++
++        try:
++            page.wait_for_selector("div.r-n-title", timeout=timeout_ms)
++            print("[INFO] Title element found.")
++
++            start_element = page.wait_for_selector("p.chapter-start-mark", state="attached", timeout=timeout_ms)
++            end_element = page.wait_for_selector("p.chapter-end-mark", state="attached", timeout=timeout_ms)
++        except PlaywrightTimeoutError:
++            browser.close()
++            raise Exception(f"Start or end marker not found on the page: {url}")
++
++        print("[INFO] Extracting chapter text...")
++        chapter_text = page.evaluate("""
++            ([startSelector, endSelector]) => {
++                const startEl = document.querySelector(startSelector);
++                const endEl = document.querySelector(endSelector);
++                if (!startEl || !endEl) return null;
++
++                let texts = [];
++                let el = startEl.nextElementSibling;
++                while (el && el !== endEl) {
++                    if (el.tagName.toLowerCase() === "p") {
++                        texts.push(el.innerText.trim());
++                    }
++                    el = el.nextElementSibling;
++                }
++                return texts.join("\\n");
++            }
++        """, ["p.chapter-start-mark", "p.chapter-end-mark"])
++
++        browser.close()
++
++        if not chapter_text:
++            raise Exception(f"No text found for chapter at URL: {url}")
++
++        # Extract chapter number and title from first line
++        first_line = chapter_text.splitlines()[0].strip()
++        match = re.match(r"Chapter\s+(\d+)\s*(.*)", first_line, re.IGNORECASE)
++        chapter_num = None
++        chapter_title = None
++        if match:
++            chapter_num = int(match.group(1))
++            chapter_title = match.group(2).strip()
++
++        return chapter_text, chapter_num, chapter_title
++
++def save_chapter_text(batch_dir: Path, chap_num: int, text: str):
++    batch_dir.mkdir(parents=True, exist_ok=True)
++    file_path = batch_dir / f"Chapter{chap_num}.txt"
++    with open(file_path, "w", encoding="utf-8") as f:
++        f.write(text)
++    return file_path
++
++def merge_batch_files(batch_dir: Path, output_dir: Path, start_chap: int, end_chap: int):
++    output_dir.mkdir(parents=True, exist_ok=True)
++    merged_file = output_dir / f"Chapter_{start_chap}_{end_chap}.txt"
++    with open(merged_file, "w", encoding="utf-8") as outfile:
++        for chap_num in range(start_chap, end_chap+1):
++            file_path = batch_dir / f"Chapter{chap_num}.txt"
++            if file_path.exists():
++                with open(file_path, "r", encoding="utf-8") as infile:
++                    outfile.write(infile.read() + "\n\n")
++    print(f"[INFO] Merged batch saved to {merged_file}")
++
++def main():
++    parser = argparse.ArgumentParser(description="Download chapters from a URL with optional FCM notifications")
++    parser.add_argument("url", help="Starting chapter URL")
++    parser.add_argument("--chapters-per-batch", type=int, default=10)
++    parser.add_argument("--num-batches", type=int, default=5)
++    parser.add_argument("--output", type=str, default="books")
++    parser.add_argument("--batch-dir", type=str, default="temp_chapter_batches")
++
++    # Notification arguments
++    group = parser.add_mutually_exclusive_group()
++    group.add_argument("--no-message", action="store_true",
++                       help="Disable FCM notifications completely")
++    group.add_argument("--notify-success", action="store_true",
++                       help="Send notifications on successful batch completion (errors always notified)")
++
++    parser.add_argument("--service", type=str, help="Path to Firebase service account JSON")
++    parser.add_argument("--token", type=str, help="Device token for FCM notifications (can be a .txt file)")
++
++    args = parser.parse_args()
++
++    if not args.no_message and (not args.service or not args.token):
++        print("🛑 Error: --service and --token must be provided unless --no-message is specified")
++        parser.print_help()
++        sys.exit(1)
++
++    start_url = args.url
++    chapters_per_batch = args.chapters_per_batch
++    num_batches = args.num_batches
++    output_dir = Path(args.output)
++    batch_base_dir = Path(args.batch_dir)
++    
++    notifier = Notifier(args.service, args.token) if not args.no_message else Notifier(None, None)
++
++    current_url = start_url
++    completed_batches = 0
++
++    for batch_num in range(1, num_batches+1):
++        print(f"[INFO] Starting batch {batch_num}")
++        batch_dir = batch_base_dir / f"batch{batch_num}"
++        start_chap_num = None
++        end_chap_num = None
++        batch_start_url = current_url
++        batch_successful = False
++
++        for chap_idx in range(chapters_per_batch):
++            try:
++                chapter_text, chap_num, chap_title = get_chapter_text(current_url)
++                if chap_num is None:
++                    chap_num = chap_idx + 1 + ((batch_num-1)*chapters_per_batch)
++                    chap_title = ""
++                print(f"[INFO] Extracted Chapter {chap_num}: {chap_title}")
++
++                if start_chap_num is None:
++                    start_chap_num = chap_num
++                end_chap_num = chap_num
++
++                save_chapter_text(batch_dir, chap_num, chapter_text)
++
++                # Update current_url to the next chapter URL
++                try:
++                    with sync_playwright() as p:
++                        browser = p.chromium.launch(headless=True)
++                        page = browser.new_page()
++                        page.goto(current_url, wait_until="networkidle", timeout=240000)
++
++                        next_link_el = page.query_selector(
++                            "div.chapter-reading-pagination a div:has-text('Next')"
++                        )
++                        if next_link_el:
++                            # Get the parent <a> href
++                            next_a = next_link_el.evaluate("el => el.parentElement.getAttribute('href')")
++                            current_url = next_a
++                        else:
++                            print("[INFO] No next chapter link found. Ending batch.")
++                            current_url = None
++
++                        browser.close()
++                except Exception as e:
++                    err_msg = f"Failed to get next chapter URL from batch url {batch_start_url}\n Current URL: {current_url}"
++                    print(f"[ERROR] {err_msg}:\n {e}")
++                    notifier.send_error("Chapter Download Error", f"{err_msg}\n{e}")
++                    current_url = None
++
++                if not current_url:
++                    break  # Stop batch if no next chapter
++
++                time.sleep(5)
++
++            except Exception as e:
++                err_msg = f"Failed to extract chapter from batch url {batch_start_url}\nat {current_url}"
++                print(f"[ERROR] {err_msg}")
++                print(f"[ERROR] {e}")
++                notifier.send_error("Chapter Download Error", f"{err_msg}\n{e}")
++                break
++
++        # Merge successfully extracted chapters in batch
++        if start_chap_num and end_chap_num:
++            merge_batch_files(batch_dir, output_dir, start_chap_num, end_chap_num)
++            batch_successful = True
++            completed_batches += 1
++
++        if batch_successful and args.notify_success:
++            progress_status = f"Batches: {completed_batches}/{num_batches} completed"
++            success_msg = f"Batch {batch_num} (Ch {start_chap_num}-{end_chap_num}) downloaded.\n{progress_status}"
++            notifier.send_info("Chapter Batch Downloaded ✅", success_msg)
++
++    print("Next url:", current_url)
++    if args.notify_success and completed_batches == num_batches:
++        progress_status = f"Batches: {completed_batches}/{num_batches} completed"
++        notifier.send_info("Complete! ✅", f"All chapter batches downloaded.\n{progress_status}")
++
++if __name__ == "__main__":
++    main()
 diff --git a/generate_audiobook.py b/generate_audiobook.py
 index 1711db2..516af71 100755
 --- a/generate_audiobook.py

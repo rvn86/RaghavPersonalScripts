@@ -80,6 +80,9 @@ if ! $ONLY_ACTIVATE; then
     huggingface-cli login --token "$TOKEN"
     deactivate
 
+    if $ACTIVATE; then
+        $BASE/runOrpheus.sh
+    fi
     #############################################
     # Setup vLLM server (only if specified)
     #############################################
@@ -131,7 +134,9 @@ fi
 if $ACTIVATE || $ONLY_ACTIVATE; then
     echo "🚀 Starting services..."
 
-    $BASE/runOrpheus.sh
+    if ! $ACTIVATE; then
+        $BASE/runOrpheus.sh
+    fi
 
     if [[ "$WITH_VLLM" == "--with-vllm" ]]; then
         $BASE/runVllm.sh
